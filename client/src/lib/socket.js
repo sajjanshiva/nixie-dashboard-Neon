@@ -67,6 +67,11 @@ export function subscribeToTaskChat(taskId, token, onMessage) {
             seenIds.add(m.id); // in case we later degrade to polling
             onMessage(m);
           });
+        } else if (data.type === "ambiguous_resolved") {
+          // Different shape from a normal message — passed through as-is
+          // so the caller (TaskConversation.jsx) can distinguish it via
+          // its own `type` field, same pattern used for new messages.
+          onMessage(data);
         }
       } catch {
         // ignore malformed frames

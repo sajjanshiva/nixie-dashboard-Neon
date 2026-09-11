@@ -70,19 +70,102 @@ router.post("/", async (req, res) => {
     const fromPhone = message.from; // digits-only, with country code
     const text = message.text?.body || "[unsupported message type]";
     const senderName = value.contacts?.[0]?.profile?.name || "Client";
+    const replyContextId = message.context?.id || null; // set if the client swipe-replied to a specific message
 
-    // Find the task whose client_phone matches this sender, comparing
-    // digits-only so formatting differences don't cause a miss.
-    const { rows: tasks } = await pool.query("select id, client_phone, assignee_id, title from tasks");
-    const matchedTask = (tasks || []).find(
-      (t) => t.client_phone && digitsOnly(t.client_phone).endsWith(digitsOnly(fromPhone).slice(-10))
+    // Pull every task on this phone number, plus how recently each one
+    // had actual chat activity (falls back to the task's own created_at
+    // if it has no messages yet) — used for the "most recently active"
+    // fallback heuristic below.
+    const { rows: candidates } = await pool.query(`
+      select t.id, t.title, t.client_phone, t.assignee_id, t.status,
+             greatest(t.created_at, coalesce(
+               (select max(created_at) from messages where task_id = t.id), t.created_at
+             )) as last_activity
+        from tasks t
+       where t.client_phone is not null
+    `);
+    const digitsFrom = digitsOnly(fromPhone).slice(-10);
+    const phoneMatches = candidates.filter(
+      (t) => t.client_phone && digitsOnly(t.client_phone).endsWith(digitsFrom)
     );
 
-    if (!matchedTask) {
+    if (phoneMatches.length === 0) {
       console.warn(`Incoming WhatsApp message from ${fromPhone} didn't match any task's client_phone.`);
       return res.status(200).send("no matching task");
     }
 
+    // ── Tier 1: certain match — client swipe-replied to a specific
+    //    message we sent. Whatever task that original message belongs
+    //    to is the answer, with no guessing at all, regardless of how
+    //    many other tasks share this phone number. ──
+    let matchedTask = null;
+    if (replyContextId) {
+      const { rows: originRows } = await pool.query(
+        "select task_id from messages where whatsapp_message_id = $1 limit 1",
+        [replyContextId]
+      );
+      if (originRows[0]) {
+        matchedTask = phoneMatches.find((t) => t.id === originRows[0].task_id) || null;
+      }
+    }
+
+    // ── Tier 2/3: no certain match — fall back to the heuristic ──
+    let ambiguousCandidates = null;
+    if (!matchedTask) {
+      const activeMatches = phoneMatches.filter((t) => t.status !== "Complete");
+      if (activeMatches.length === 1) {
+        matchedTask = activeMatches[0];
+      } else if (activeMatches.length > 1) {
+        // 2+ active tasks on this phone number and no reply-context to
+        // disambiguate — this is the genuinely ambiguous case. Sort by
+        // most recently active; the top one is used as the "primary"
+        // notification target, but the message gets linked into EVERY
+        // active candidate below, not just this one.
+        ambiguousCandidates = [...activeMatches].sort(
+          (a, b) => new Date(b.last_activity) - new Date(a.last_activity)
+        );
+        matchedTask = ambiguousCandidates[0];
+      } else {
+        // No active tasks at all on this number (all complete) — still
+        // route it somewhere rather than lose the message entirely; most
+        // recently active completed task is the best remaining guess.
+        matchedTask = [...phoneMatches].sort(
+          (a, b) => new Date(b.last_activity) - new Date(a.last_activity)
+        )[0];
+      }
+    }
+
+    if (ambiguousCandidates) {
+      // ── Linked copies across every active candidate task ──
+      const { rows: ambRows } = await pool.query(
+        "insert into ambiguous_whatsapp_replies (phone, text, sender_name) values ($1, $2, $3) returning id",
+        [fromPhone, text, senderName]
+      );
+      const ambiguousReplyId = ambRows[0].id;
+
+      for (const t of ambiguousCandidates) {
+        const { rows: inserted } = await pool.query(
+          `insert into messages (task_id, kind, author_name, is_client, text, ambiguous_reply_id)
+           values ($1, 'client', $2, true, $3, $4) returning *`,
+          [t.id, senderName, text, ambiguousReplyId]
+        );
+        broadcastNewMessages(t.id, inserted);
+
+        if (t.assignee_id) {
+          const alreadyViewing = isUserConnectedToTask(t.assignee_id, t.id);
+          const preview = text.length > 80 ? `${text.slice(0, 80)}…` : text;
+          await notifyUser(
+            t.assignee_id,
+            `${senderName} replied (also has another active task — check before responding): ${preview}`,
+            "/staff/my-tasks",
+            { relatedTaskId: t.id, skipPush: alreadyViewing }
+          );
+        }
+      }
+      return res.status(200).send("ok (ambiguous, linked to multiple tasks)");
+    }
+
+    // ── Single, non-ambiguous match (certain, or only one candidate) ──
     const { rows: inserted } = await pool.query(
       `insert into messages (task_id, kind, author_name, is_client, text)
        values ($1, 'client', $2, true, $3) returning *`,

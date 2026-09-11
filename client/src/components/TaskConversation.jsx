@@ -4,6 +4,7 @@ import {
   AlertCircle, Clock, Info, ChevronUp, CheckCircle2, RotateCw,
 } from "lucide-react";
 import Avatar from "./Avatar.jsx";
+import toast from "react-hot-toast";
 import {
   getMessages, subscribeToMessages, sendMessage,
   updateTaskProgress, markTaskComplete, undoTaskComplete,
@@ -11,7 +12,7 @@ import {
 import { useAuth } from "../lib/AuthContext.jsx";
 
 // ── Chat bubble components ──────────────────────────────────────────────
-function Bubble({ msg, onRetry }) {
+function Bubble({ msg, onRetry, currentTaskId }) {
   if (!msg) return null;
   const isPending = msg._status === "pending";
   const isFailed  = msg._status === "failed";
@@ -80,8 +81,9 @@ function Bubble({ msg, onRetry }) {
 
   const fromClient = !!msg.is_client;
   const authorName = msg.author_name || (fromClient ? "Client" : "Staff");
+  const resolvedElsewhere = msg.ambiguous_reply_id && msg.ambiguous_claimed && msg.ambiguous_claimed_by_task_id !== currentTaskId;
   return (
-    <div className={`my-2 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending ? "opacity-60" : ""}`}>
+    <div className={`my-2 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending || resolvedElsewhere ? "opacity-60" : ""}`}>
       <Avatar name={authorName} tone={fromClient ? "client" : "admin"} className="h-7 w-7 shrink-0 text-[10px]" />
       <div className={`max-w-[78%] rounded-2xl px-4 py-3 ${
         isFailed
@@ -99,6 +101,27 @@ function Bubble({ msg, onRetry }) {
           </span>
         </p>
         <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
+
+        {/* Ambiguous-reply state: this same incoming message was also
+            linked into another active task (client had 2+ active tasks
+            on this phone number, no swipe-reply to disambiguate). */}
+        {msg.ambiguous_reply_id && !msg.ambiguous_claimed && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-100/70 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+            <span>This client also has another active task — double-check this reply is about the right one before responding.</span>
+          </div>
+        )}
+        {msg.ambiguous_reply_id && msg.ambiguous_claimed && msg.ambiguous_claimed_by_task_id !== currentTaskId && (
+          <div className="mt-2 rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] text-slate-500 dark:bg-white/8 dark:text-slate-400">
+            <p className="flex items-center gap-1 font-semibold">
+              <Check size={11} /> Already replied by {msg.ambiguous_claimed_by_name || "a staff member"} in "{msg.ambiguous_claimed_by_task_title || "another task"}"
+            </p>
+            {msg.ambiguous_claimed_reply_text && (
+              <p className="mt-0.5 italic text-slate-400 dark:text-slate-500">"{msg.ambiguous_claimed_reply_text}"</p>
+            )}
+          </div>
+        )}
+
         {isFailed && (
           <div className="mt-1 flex items-center gap-2">
             <p className="flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed to send</p>
@@ -201,6 +224,27 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
 
     const unsub = subscribeToMessages(task.id, (m) => {
       if (!m) return;
+
+      // Not a new chat message — a live update saying an ambiguous
+      // message (linked across multiple tasks) was just answered from
+      // somewhere else. Update every local copy of it to the resolved
+      // state instead of appending anything.
+      if (m.type === "ambiguous_resolved") {
+        setMessages((prev) => prev.map((msg) =>
+          msg.ambiguous_reply_id === m.ambiguousReplyId
+            ? {
+                ...msg,
+                ambiguous_claimed: true,
+                ambiguous_claimed_by_task_id: m.claimedByTaskId,
+                ambiguous_claimed_by_task_title: m.claimedByTaskTitle,
+                ambiguous_claimed_by_name: m.claimedByUserName,
+                ambiguous_claimed_reply_text: m.claimedReplyText,
+              }
+            : msg
+        ));
+        return;
+      }
+
       setMessages((prev) => {
         if (prev.some((e) => e.id === m.id)) return prev; // already have it
         // The duplicate-flicker fix: our own sent message can arrive back
@@ -264,8 +308,21 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
         const ids = new Set(withoutTemps.map((m) => m.id));
         return [...withoutTemps, ...real.filter((r) => !ids.has(r.id))];
       });
-    } catch {
-      setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
+    } catch (err) {
+      const lostRace = /already replied to from another task/i.test(err?.message || "");
+      if (lostRace) {
+        // Not a real failure, and not retryable — someone else genuinely
+        // already answered this. Remove the temp bubble entirely (Retry
+        // would just fail again the same way) and refresh from the
+        // server so this chat shows the real resolved state.
+        setMessages((p) => p.filter((m) => !temps.some((t) => t.id === m.id)));
+        toast.error(err.message);
+        getMessages(task.id).then((data) => {
+          if (Array.isArray(data)) setMessages(data);
+        }).catch(() => {});
+      } else {
+        setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
+      }
     }
   }
 
@@ -442,7 +499,7 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
             <p className="text-[12.5px] text-slate-400">No messages yet</p>
           </div>
         ) : (
-          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} onRetry={handleRetry} />)
+          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} onRetry={handleRetry} currentTaskId={task.id} />)
         )}
       </div>
 

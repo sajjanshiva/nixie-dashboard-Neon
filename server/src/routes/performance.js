@@ -187,7 +187,13 @@ async function computePerformance(staffId, from, to) {
   const completed = tasks.filter((t) => t && t.status === "Complete");
   const onTimeTasks = completed.filter((t) => {
     if (!t?.due_date) return false;
-    const doneDate = (typeof t.updated_at === "string" && t.updated_at.slice(0, 10))
+    // completed_at is the real fix (stamped only at the actual moment of
+    // completion, ignored the instant a task isn't currently Complete).
+    // Falls back to updated_at/created_at only for tasks completed
+    // before this column existed, so old data doesn't suddenly look
+    // wrong — those are the same fields this calculation used before.
+    const doneDate = (typeof t.completed_at === "string" && t.completed_at.slice(0, 10))
+      || (typeof t.updated_at === "string" && t.updated_at.slice(0, 10))
       || (typeof t.created_at === "string" && t.created_at.slice(0, 10))
       || "";
     return doneDate ? doneDate <= t.due_date : true;

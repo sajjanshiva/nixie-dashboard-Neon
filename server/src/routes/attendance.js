@@ -92,6 +92,15 @@ router.post("/check-in", async (req, res) => {
     return res.status(403).json({ message: "You've already checked out for today. Check in again tomorrow from 9 AM." });
   }
 
+  // Blocks checking in before office_start_time — applies to both work
+  // modes (office and home), not just office. Previously officeStartTime
+  // was only used to LABEL a check-in as on_time/late after the fact;
+  // there was no actual lower bound stopping an early one.
+  const officeStartToday = dateTimeAt(today, officeStartTime);
+  if (new Date() < officeStartToday) {
+    return res.status(403).json({ message: `Check-in opens at ${officeStartTime} — you're a bit early.` });
+  }
+
   if (workMode === "office") {
     const officeLocation = await getSetting("office_location");
     const distance = haversineMeters(lat, lng, officeLocation.lat, officeLocation.lng);
@@ -103,9 +112,14 @@ router.post("/check-in", async (req, res) => {
   }
 
   const now = new Date();
-  const officeStartToday = dateTimeAt(today, officeStartTime);
   const isFirstSessionToday = !todaysRows.length;
-  const status = isFirstSessionToday ? (now <= officeStartToday ? "on_time" : "late") : null;
+  // Grace period after office start that still counts as "on time" — a
+  // real fix needed once early check-in got blocked above: without this,
+  // "on time" (at-or-before start) becomes almost impossible to hit
+  // exactly, since nobody can arrive early anymore to land before it.
+  const ON_TIME_GRACE_MINUTES = 10;
+  const onTimeCutoff = new Date(officeStartToday.getTime() + ON_TIME_GRACE_MINUTES * 60000);
+  const status = isFirstSessionToday ? (now <= onTimeCutoff ? "on_time" : "late") : null;
 
   const { rows } = await pool.query(
     `insert into attendance (staff_id, date, check_in, work_mode, status)

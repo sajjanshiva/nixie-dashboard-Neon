@@ -93,10 +93,15 @@ async function authToken() {
 // Tasks
 // ---------------------------------------------------------------------
 
-export async function getTasks({ assigneeId } = {}) {
+export async function getTasks({ assigneeId, status, page, pageSize } = {}) {
   const token = await authToken();
-  const qs = assigneeId ? `?assigneeId=${encodeURIComponent(assigneeId)}` : "";
-  return apiGet(`/api/tasks${qs}`, token);
+  const params = new URLSearchParams();
+  if (assigneeId) params.set("assigneeId", assigneeId);
+  if (status) params.set("status", status);
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/tasks${qs}`, token); // { tasks, total, page, pageSize, totalPages }
 }
 
 export async function getTask(taskId) {

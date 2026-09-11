@@ -58,5 +58,9 @@ export async function sendWhatsAppMessage(toPhone, text) {
     const err = await res.text();
     throw new Error(`WhatsApp send failed: ${err}`);
   }
-  return res.json();
+  const data = await res.json();
+  // Meta returns the sent message's own id here — saved by callers so an
+  // incoming swipe-reply (which references this id) can be matched back
+  // to exactly this message, and therefore exactly the task it belongs to.
+  return { ...data, messageId: data.messages?.[0]?.id || null };
 }

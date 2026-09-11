@@ -39,6 +39,21 @@ export function broadcastNewMessages(taskId, messages) {
   }
 }
 
+// Called by routes/messages.js after a staff member's reply "claims" an
+// ambiguous incoming message (see ambiguous_whatsapp_replies) — pushes
+// the resolution to every OTHER task that had a linked copy of the same
+// message, so their chats update live instead of only on next refresh.
+export function broadcastAmbiguousResolved(taskIds, resolution) {
+  const payload = JSON.stringify({ type: "ambiguous_resolved", ...resolution });
+  for (const taskId of taskIds) {
+    const set = taskConnections.get(taskId);
+    if (!set) continue;
+    for (const ws of set) {
+      if (ws.readyState === ws.OPEN) ws.send(payload);
+    }
+  }
+}
+
 // Used by webhooksWhatsapp.js: is this specific user currently viewing
 // this specific task's chat right now? If so, an incoming WhatsApp
 // reply notification can skip sending a redundant push — they'll see

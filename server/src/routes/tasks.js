@@ -6,35 +6,45 @@ import { broadcastNewMessages } from "../lib/ws.js";
 
 const router = Router();
 
-// GET /api/tasks?assigneeId=... — replaces the old direct-Supabase
-// getTasks(). Previously RLS enforced "staff only see their own tasks"
-// automatically; that check now lives here instead. Staff can't use
-// assigneeId to look at someone else's tasks — it's forced to their own
-// id regardless of what's passed.
+// GET /api/tasks?assigneeId=...&status=...&page=1&pageSize=24
+// Paginated + filtered server-side now (previously fetched every task
+// and filtered client-side — fine at small scale, but doesn't hold up
+// as real usage accumulates). Returns { tasks, total, page, pageSize,
+// totalPages } instead of a plain array.
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const assigneeId = isAdmin ? req.query.assigneeId : req.user.id;
+  const status = req.query.status; // "In Progress" | "Complete" | undefined (= all)
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 24));
+  const offset = (page - 1) * pageSize;
 
+  const where = [];
   const params = [];
-  let sql = `
-    select t.*, p.id as assignee_profile_id, p.name as assignee_name
-    from tasks t
-    left join profiles p on p.id = t.assignee_id
-  `;
-  if (assigneeId) {
-    sql += " where t.assignee_id = $1";
-    params.push(assigneeId);
-  }
-  sql += " order by t.created_at desc";
+  if (assigneeId) { params.push(assigneeId); where.push(`t.assignee_id = $${params.length}`); }
+  if (status)     { params.push(status);     where.push(`t.status = $${params.length}`); }
+  const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
-  const { rows } = await pool.query(sql, params);
-  // Shape it to match what the client already expects from Supabase's
-  // "*, assignee:profiles(id, name)" select syntax.
+  const { rows: countRows } = await pool.query(`select count(*)::int as count from tasks t ${whereSql}`, params);
+  const total = countRows[0].count;
+
+  const pageParams = [...params, pageSize, offset];
+  const { rows } = await pool.query(
+    `select t.*, p.id as assignee_profile_id, p.name as assignee_name
+       from tasks t
+       left join profiles p on p.id = t.assignee_id
+       ${whereSql}
+       order by t.created_at desc
+       limit $${pageParams.length - 1} offset $${pageParams.length}`,
+    pageParams
+  );
+
   const tasks = rows.map(({ assignee_profile_id, assignee_name, ...t }) => ({
     ...t,
     assignee: assignee_profile_id ? { id: assignee_profile_id, name: assignee_name } : null,
   }));
-  res.json(tasks);
+
+  res.json({ tasks, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 
 // GET /api/tasks/:id
@@ -156,7 +166,7 @@ router.post("/:id/complete", async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    "update tasks set status = 'Complete', progress = 100, updated_at = now() where id = $1 returning *",
+    "update tasks set status = 'Complete', progress = 100, completed_at = now(), updated_at = now() where id = $1 returning *",
     [req.params.id]
   );
   res.json(rows[0]);
@@ -180,35 +190,55 @@ router.post("/progress", async (req, res) => {
   const isAssignee = task.assignee_id === req.user.id;
   if (!isAdmin && !isAssignee) return res.status(403).json({ message: "You don't have access to this task" });
 
-  // A task previously marked Complete but then dragged back down below 100%
-  // is no longer actually complete — auto-revert status here (the one place
-  // progress ever changes) instead of leaving it stuck showing as Complete
-  // in the Completed filter while the progress bar disagrees.
-  const revertingFromComplete = task.status === "Complete" && progress < 100;
-  const newStatus = revertingFromComplete ? "In Progress" : task.status;
+  // Two status transitions live here, the only place progress ever changes:
+  //  - Reaching 100% while not already Complete -> auto-completes the
+  //    task, same as clicking Mark Complete. completed_at is stamped
+  //    here, at the real moment of completion.
+  //  - Dragging back down below 100% while Complete -> reverts to
+  //    "In Progress". completed_at is left as-is in the row (harmless —
+  //    performance scoring only ever reads it for tasks currently
+  //    Complete, so a stale value from a previous completion is simply
+  //    ignored until this task is completed again, at which point it
+  //    gets overwritten with the new, real completion moment).
+  const wasComplete = task.status === "Complete";
+  const autoCompleting = !wasComplete && progress >= 100;
+  const revertingFromComplete = wasComplete && progress < 100;
+  const newStatus = autoCompleting ? "Complete" : revertingFromComplete ? "In Progress" : task.status;
 
-  await pool.query(
-    "update tasks set progress = $1, status = $2, updated_at = now() where id = $3",
-    [progress, newStatus, taskId]
-  );
+  if (autoCompleting) {
+    await pool.query(
+      "update tasks set progress = $1, status = $2, completed_at = now(), updated_at = now() where id = $3",
+      [progress, newStatus, taskId]
+    );
+  } else {
+    await pool.query(
+      "update tasks set progress = $1, status = $2, updated_at = now() where id = $3",
+      [progress, newStatus, taskId]
+    );
+  }
+
+  let systemText;
+  if (autoCompleting) systemText = `Progress reached 100% — task automatically marked Complete`;
+  else if (revertingFromComplete) systemText = `Progress updated to ${progress}% — task reopened (no longer marked Complete)`;
+  else systemText = `Progress updated to ${progress}%`;
 
   await pool.query(
     `insert into messages (task_id, kind, text) values ($1, 'system', $2)`,
-    [
-      taskId,
-      revertingFromComplete
-        ? `Progress updated to ${progress}% — task reopened (no longer marked Complete)`
-        : `Progress updated to ${progress}%`,
-    ]
+    [taskId, systemText]
   );
 
-  const clientText = `📊 Progress update: your task '${task.title}' is now ${progress}% complete.`;
+  // The client-facing WhatsApp message changes tone at the exact moment
+  // of auto-completion — a completion announcement instead of a generic
+  // percentage update.
+  const clientText = autoCompleting
+    ? `🎉 Great news — your order '${task.title}' is complete!`
+    : `📊 Progress update: your task '${task.title}' is now ${progress}% complete.`;
   try {
-    await sendWhatsAppMessage(task.client_phone, clientText);
+    const sendResult = await sendWhatsAppMessage(task.client_phone, clientText);
     await pool.query(
-      `insert into messages (task_id, kind, author_id, author_name, author_role, is_client, text)
-       values ($1, 'client', $2, $3, $4, false, $5)`,
-      [taskId, req.user.id, req.user.name, req.user.role, clientText]
+      `insert into messages (task_id, kind, author_id, author_name, author_role, is_client, whatsapp_message_id, text)
+       values ($1, 'client', $2, $3, $4, false, $5, $6)`,
+      [taskId, req.user.id, req.user.name, req.user.role, sendResult?.messageId || null, clientText]
     );
   } catch (e) {
     console.error("WhatsApp progress update failed:", e.message);
