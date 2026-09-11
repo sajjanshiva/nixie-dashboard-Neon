@@ -1,7 +1,8 @@
 import { Router } from "express";
 import crypto from "crypto";
 import { pool } from "../lib/db.js";
-import { broadcastNewMessages } from "../lib/ws.js";
+import { broadcastNewMessages, isUserConnectedToTask } from "../lib/ws.js";
+import { notifyUser } from "../lib/notify.js";
 
 const router = Router();
 
@@ -72,7 +73,7 @@ router.post("/", async (req, res) => {
 
     // Find the task whose client_phone matches this sender, comparing
     // digits-only so formatting differences don't cause a miss.
-    const { rows: tasks } = await pool.query("select id, client_phone from tasks");
+    const { rows: tasks } = await pool.query("select id, client_phone, assignee_id, title from tasks");
     const matchedTask = (tasks || []).find(
       (t) => t.client_phone && digitsOnly(t.client_phone).endsWith(digitsOnly(fromPhone).slice(-10))
     );
@@ -91,6 +92,21 @@ router.post("/", async (req, res) => {
     // Same as the /send route — push this instantly to anyone with this
     // task's chat currently open.
     broadcastNewMessages(matchedTask.id, inserted);
+
+    // Notify the assignee — unless they're already looking at this exact
+    // chat right now (they'll see the message appear live via the socket
+    // above, so a push would just be redundant). The bell still logs it
+    // either way, only the push notification is conditionally skipped.
+    if (matchedTask.assignee_id) {
+      const alreadyViewing = isUserConnectedToTask(matchedTask.assignee_id, matchedTask.id);
+      const preview = text.length > 80 ? `${text.slice(0, 80)}…` : text;
+      await notifyUser(
+        matchedTask.assignee_id,
+        `${senderName} replied: ${preview}`,
+        "/staff/my-tasks",
+        { relatedTaskId: matchedTask.id, skipPush: alreadyViewing }
+      );
+    }
 
     res.status(200).send("ok");
   } catch (e) {

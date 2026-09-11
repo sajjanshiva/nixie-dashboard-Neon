@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ShoppingBag, Tag, ChevronRight } from "lucide-react";
-import { getTasks } from "../../lib/api.js";
+import { ShoppingBag, Tag, ChevronRight, Trash2 } from "lucide-react";
+import { getTasks, deleteTask } from "../../lib/api.js";
 import TaskDrawer from "../../components/TaskDrawer.jsx";
 
 // Remove "Unassigned" — every task is assigned at creation
@@ -40,6 +40,22 @@ export default function AllTasks() {
   function handleProgressChange(taskId, progress, status) {
     setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, progress, ...(status ? { status } : {}) } : t)));
     setOpenTask((t) => t?.id === taskId ? { ...t, progress, ...(status ? { status } : {}) } : t);
+  }
+
+  // Manual tasks only — enforced server-side too. e.stopPropagation() is
+  // needed since the delete icon sits inside the card's own onClick
+  // (which opens the drawer) — without it, clicking delete would also
+  // open the task.
+  async function handleDelete(e, task) {
+    e.stopPropagation();
+    if (!confirm(`Delete "${task.title}"? This also deletes its chat history and can't be undone.`)) return;
+    try {
+      await deleteTask(task.id);
+      setTasks((ts) => ts.filter((t) => t.id !== task.id));
+      setOpenTask((t) => t?.id === task.id ? null : t);
+    } catch (err) {
+      alert(err.message || "Failed to delete task");
+    }
   }
 
   return (
@@ -108,6 +124,15 @@ export default function AllTasks() {
                 </span>
                 <div className="flex items-center gap-1.5">
                   <SourceIcon source={t.source} />
+                  {t.source === "manual" && (
+                    <button
+                      onClick={(e) => handleDelete(e, t)}
+                      title="Delete task"
+                      className="rounded-md p-0.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-950/30 dark:hover:text-rose-400"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                   <ChevronRight size={15} className="text-slate-300 transition group-hover:text-accent dark:text-slate-600" />
                 </div>
               </div>

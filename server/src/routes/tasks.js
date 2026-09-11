@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { pool } from "../lib/db.js";
 import { sendWhatsAppMessage } from "../lib/whatsapp.js";
-import { notifyUser } from "../lib/notify.js";
+import { notifyUser, clearAssignmentNotifications } from "../lib/notify.js";
+import { broadcastNewMessages } from "../lib/ws.js";
 
 const router = Router();
 
@@ -57,43 +58,85 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST /api/tasks — admin only (manual task creation via Team page, per
-// the app's design — tasks aren't self-service).
+// the app's design — tasks aren't self-service). An assignee is now
+// required — previously a task could be created with nobody assigned at
+// all, silently invisible to any staff member; enforced here, not just
+// in the form, since the client can't be trusted alone.
 router.post("/", async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ message: "Admin only" });
 
   const { title, description, client_name, client_phone, due_date, links, assignee_id } = req.body || {};
   if (!title) return res.status(400).json({ message: "title is required" });
+  if (!assignee_id) return res.status(400).json({ message: "An assignee is required" });
 
   const { rows } = await pool.query(
     `insert into tasks (title, description, client_name, client_phone, due_date, links, assignee_id)
      values ($1, $2, $3, $4, $5, $6, $7) returning *`,
-    [title, description || null, client_name || null, client_phone || null, due_date || null, links || null, assignee_id || null]
+    [title, description || null, client_name || null, client_phone || null, due_date || null, links || null, assignee_id]
   );
   const task = rows[0];
 
-  // Replaces trg_notify_task_assignee — notify immediately if created
-  // with an assignee already set.
-  if (assignee_id) {
-    await notifyUser(assignee_id, `You were assigned: ${title}`, "/staff/my-tasks");
-  }
+  // Replaces trg_notify_task_assignee.
+  await notifyUser(assignee_id, `You were assigned: ${title}`, "/staff/my-tasks", { relatedTaskId: task.id });
 
   res.status(201).json(task);
 });
 
 // PUT /api/tasks/:id/assign — admin only. Body: { assigneeId }
+// On an actual reassignment (task already had a different assignee, or
+// is being unassigned), this now: clears any stale unread notification
+// the previous assignee still had for this task, logs a system message
+// in the chat so the handoff is visible in the task's history (the
+// conversation itself is untouched — the new assignee can see everything
+// that happened before, this just marks where the handoff occurred), and
+// notifies the new assignee.
 router.put("/:id/assign", async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ message: "Admin only" });
 
   const { assigneeId } = req.body || {};
+
+  const { rows: beforeRows } = await pool.query(
+    "select id, title, assignee_id from tasks where id = $1",
+    [req.params.id]
+  );
+  const before = beforeRows[0];
+  if (!before) return res.status(404).json({ message: "Task not found" });
+
   const { rows } = await pool.query(
     "update tasks set assignee_id = $1, updated_at = now() where id = $2 returning *",
     [assigneeId || null, req.params.id]
   );
   const task = rows[0];
-  if (!task) return res.status(404).json({ message: "Task not found" });
+
+  // Clear any stale unread "you were assigned this" notification before
+  // the new one (if any) gets created below.
+  await clearAssignmentNotifications({ relatedTaskId: task.id });
+
+  // Only log a handoff message for an ACTUAL reassignment — i.e. this
+  // task already had a different assignee. A first-time assignment from
+  // "unassigned" isn't a handoff, so no system message there.
+  const isRealReassignment = before.assignee_id && before.assignee_id !== assigneeId;
+  if (isRealReassignment) {
+    const [{ rows: oldP }, { rows: newP }] = await Promise.all([
+      pool.query("select name from profiles where id = $1", [before.assignee_id]),
+      assigneeId ? pool.query("select name from profiles where id = $1", [assigneeId]) : Promise.resolve({ rows: [] }),
+    ]);
+    const oldName = oldP[0]?.name || "a staff member";
+    const handoffText = assigneeId
+      ? `Task reassigned from ${oldName} to ${newP[0]?.name || "a staff member"}`
+      : `Task unassigned from ${oldName}`;
+
+    const { rows: systemMsgRows } = await pool.query(
+      `insert into messages (task_id, kind, text) values ($1, 'system', $2) returning *`,
+      [task.id, handoffText]
+    );
+    // Same as any other new message — push it live to anyone with this
+    // task's chat currently open, not just on next page load.
+    broadcastNewMessages(task.id, systemMsgRows);
+  }
 
   if (assigneeId) {
-    await notifyUser(assigneeId, `You were assigned: ${task.title}`, "/staff/my-tasks");
+    await notifyUser(assigneeId, `You were assigned: ${task.title}`, "/staff/my-tasks", { relatedTaskId: task.id });
   }
 
   res.json(task);
@@ -205,6 +248,28 @@ router.post("/undo-complete", async (req, res) => {
   );
 
   res.json({ ok: true, status: "In Progress" });
+});
+
+// DELETE /api/tasks/:id — admin only, and ONLY for manually created
+// tasks. Shopify-order-derived tasks represent real customer orders —
+// deleting the task shouldn't be how you undo a wrong assignment (use
+// PUT /:id/assign instead); the source check below is a server-side
+// safety net even though the UI only shows a delete button for manual
+// tasks in the first place, in case that condition is ever bypassed.
+// Chat messages cascade-delete automatically (see schema: messages ->
+// task_id references tasks(id) on delete cascade).
+router.delete("/:id", async (req, res) => {
+  if (req.user.role !== "admin") return res.status(403).json({ message: "Admin only" });
+
+  const { rows } = await pool.query("select source from tasks where id = $1", [req.params.id]);
+  const task = rows[0];
+  if (!task) return res.status(404).json({ message: "Task not found" });
+  if (task.source !== "manual") {
+    return res.status(400).json({ message: "Only manually created tasks can be deleted — reassign Shopify-order tasks instead" });
+  }
+
+  await pool.query("delete from tasks where id = $1", [req.params.id]);
+  res.json({ ok: true });
 });
 
 export default router;

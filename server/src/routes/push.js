@@ -9,13 +9,30 @@ const router = Router();
 // req.user is already the logged-in profile.
 router.post("/subscribe", async (req, res) => {
   const { subscription } = req.body || {};
-  if (!subscription) return res.status(400).json({ message: "Missing subscription" });
+  if (!subscription?.endpoint) return res.status(400).json({ message: "Missing subscription" });
 
   try {
-    await pool.query(
-      "insert into push_subscriptions (user_id, subscription) values ($1, $2)",
-      [req.user.id, JSON.stringify(subscription)]
+    // Dedupe on (user, device) — a device's push endpoint is a stable
+    // identifier for that specific browser/device. If this exact device
+    // is already subscribed, update the row in place (keys can rotate)
+    // instead of inserting a duplicate — this is what makes it safe to
+    // show "Enable notifications" even when we're not 100% sure this
+    // device already has an active subscription (see NotificationBell.jsx).
+    const { rows: existing } = await pool.query(
+      "select id from push_subscriptions where user_id = $1 and subscription->>'endpoint' = $2",
+      [req.user.id, subscription.endpoint]
     );
+    if (existing[0]) {
+      await pool.query(
+        "update push_subscriptions set subscription = $1 where id = $2",
+        [JSON.stringify(subscription), existing[0].id]
+      );
+    } else {
+      await pool.query(
+        "insert into push_subscriptions (user_id, subscription) values ($1, $2)",
+        [req.user.id, JSON.stringify(subscription)]
+      );
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: err.message });

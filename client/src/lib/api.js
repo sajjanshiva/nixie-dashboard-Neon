@@ -126,6 +126,12 @@ export async function markTaskComplete(taskId) {
   return apiPost(`/api/tasks/${taskId}/complete`, {}, token);
 }
 
+// Manual tasks only — enforced server-side too, this isn't just a UI restriction.
+export async function deleteTask(taskId) {
+  const token = await authToken();
+  return apiDelete(`/api/tasks/${taskId}`, token);
+}
+
 // Reverts a task from Complete back to In Progress without touching its
 // progress value — for undoing an accidental Mark Complete click. Routed
 // through the backend (not a direct Supabase update, unlike markTaskComplete)
@@ -190,8 +196,16 @@ export async function getMessages(taskId) {
 // Realtime channel — see lib/socket.js. Kept async since callers awaited
 // authToken() as part of setting this up (needed to pass the token to
 // the socket for auth, same as any other authenticated request).
-export async function subscribeToMessages(taskId, onInsert) {
-  const token = await authToken();
+// Returns the unsub function directly (synchronous), NOT a promise —
+// this matters. It only needs the token from localStorage, which is
+// actually synchronous; making this async (awaiting it before opening
+// the socket) created a timing gap where React StrictMode's dev-mode
+// mount->cleanup->mount cycle could race against the socket still
+// connecting, closing it mid-handshake ("WebSocket is closed before the
+// connection is established"). Opening synchronously, inside the same
+// tick as the effect, avoids the race entirely.
+export function subscribeToMessages(taskId, onInsert) {
+  const token = localStorage.getItem("nixie_dashboard_token");
   return subscribeToTaskChat(taskId, token, onInsert);
 }
 

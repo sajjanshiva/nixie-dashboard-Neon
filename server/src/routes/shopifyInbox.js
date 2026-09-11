@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { pool } from "../lib/db.js";
-import { notifyUser } from "../lib/notify.js";
+import { notifyUser, clearAssignmentNotifications } from "../lib/notify.js";
 
 const router = Router();
 
@@ -56,7 +56,7 @@ router.post("/orders/:id/assign", requireAdmin, async (req, res) => {
   await pool.query("update shopify_orders set task_id = $1, status = 'assigned' where id = $2", [task.id, order.id]);
 
   if (assigneeId) {
-    await notifyUser(assigneeId, `You were assigned: ${title}`, "/staff/my-tasks");
+    await notifyUser(assigneeId, `You were assigned: ${title}`, "/staff/my-tasks", { relatedTaskId: task.id });
   }
 
   const { rows: assigneeRows } = await pool.query("select id, name from profiles where id = $1", [assigneeId]);
@@ -112,12 +112,15 @@ router.post("/leads/:id/assign", requireAdmin, async (req, res) => {
   const lead = rows[0];
   if (!lead) return res.status(404).json({ message: "Lead not found" });
 
+  // Same stale-notification cleanup as task reassignment.
+  await clearAssignmentNotifications({ relatedLeadId: lead.id });
+
   if (assigneeId) {
     const leadNum = (lead.lead_number || "").replace(/^#/, "");
     const msg = leadNum
       ? `You were assigned lead: ${lead.name || "Customer"} (#${leadNum})`
       : `You were assigned lead: ${lead.name || "Customer"}`;
-    await notifyUser(assigneeId, msg, "/staff/my-leads");
+    await notifyUser(assigneeId, msg, "/staff/my-leads", { relatedLeadId: lead.id });
   }
 
   res.json({ ok: true });

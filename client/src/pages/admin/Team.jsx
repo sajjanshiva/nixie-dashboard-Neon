@@ -74,14 +74,18 @@ function NewTaskForm({ members, onDone }) {
         </div>
         <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="input" />
         <textarea placeholder="Links (one per line)" rows={2} value={form.links} onChange={(e) => setForm({ ...form, links: e.target.value })} className="input resize-none" />
+        {/* An assignee is now required — previously a task could be
+            created with nobody assigned, silently invisible to any
+            staff member. "Unassigned" option removed; the placeholder
+            option can't be re-selected once a choice is made. */}
         <select value={form.assignee_id} onChange={(e) => setForm({ ...form, assignee_id: e.target.value })} className="input">
-          <option value="">Unassigned</option>
+          <option value="" disabled>Assign to…</option>
           {/* Pending invites have no name yet, so only active staff show up here */}
           {members.filter((m) => m.role === "staff" && !m.pending).map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        <button onClick={submit} disabled={saving || !form.title} className="w-full rounded-lg bg-accent py-2.5 text-[13.5px] font-medium text-white disabled:opacity-50">
+        <button onClick={submit} disabled={saving || !form.title || !form.assignee_id} className="w-full rounded-lg bg-accent py-2.5 text-[13.5px] font-medium text-white disabled:opacity-50">
           {saving ? "Creating…" : "Create"}
         </button>
       </div>

@@ -63,16 +63,29 @@ export default function NotificationBell() {
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Push permission state (shows the "Enable notifications" row
-  //    only when the browser supports it and hasn't been asked yet) ──
+  //    when the browser supports it and either hasn't been asked yet
+  //    ("default"), OR permission is already granted but this device
+  //    hasn't actually completed a real subscribe on THIS backend yet
+  //    ("granted" + no local confirmation flag). Browser permission and
+  //    "actually subscribed to push_subscriptions" are two different
+  //    things — permission can be granted from a much earlier session
+  //    (even against a previous backend) while no subscription exists
+  //    here at all, which is exactly the bug this fixes. ──
+  const PUSH_CONFIRMED_KEY = "nixie_dashboard_push_confirmed";
   useEffect(() => {
     if (isPushSupported()) setPushPermission(getPushPermission());
   }, [open]);
+
+  const pushConfirmedOnThisDevice = localStorage.getItem(PUSH_CONFIRMED_KEY) === "true";
+  const showEnableRow =
+    pushPermission === "default" || (pushPermission === "granted" && !pushConfirmedOnThisDevice);
 
   async function handleEnablePush() {
     setEnabling(true);
     try {
       await enablePush();
       setPushPermission("granted");
+      localStorage.setItem(PUSH_CONFIRMED_KEY, "true");
       toast.success("Notifications enabled on this device");
     } catch (err) {
       setPushPermission(getPushPermission());
@@ -156,8 +169,9 @@ export default function NotificationBell() {
             )}
           </div>
 
-          {/* Enable push row — only shown if supported and not yet decided */}
-          {pushPermission === "default" && (
+          {/* Enable push row — shown if supported and not yet confirmed
+              subscribed on this device (see showEnableRow above) */}
+          {showEnableRow && (
             <button
               onClick={handleEnablePush}
               disabled={enabling}

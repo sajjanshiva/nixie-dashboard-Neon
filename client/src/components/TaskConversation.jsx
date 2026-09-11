@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   MessageCircle, Users, Send, Check, Sparkles, ChevronLeft,
-  AlertCircle, Clock, Info, ChevronUp, CheckCircle2,
+  AlertCircle, Clock, Info, ChevronUp, CheckCircle2, RotateCw,
 } from "lucide-react";
 import Avatar from "./Avatar.jsx";
 import {
@@ -11,7 +11,7 @@ import {
 import { useAuth } from "../lib/AuthContext.jsx";
 
 // ── Chat bubble components ──────────────────────────────────────────────
-function Bubble({ msg }) {
+function Bubble({ msg, onRetry }) {
   if (!msg) return null;
   const isPending = msg._status === "pending";
   const isFailed  = msg._status === "failed";
@@ -37,24 +37,41 @@ function Bubble({ msg }) {
     );
   }
 
+  // Retry action — shown on any failed bubble, staff or client-directed.
+  const RetryButton = () => (
+    <button
+      onClick={() => onRetry?.(msg)}
+      className="mt-1.5 flex items-center gap-1 rounded-md bg-rose-100 px-2 py-1 text-[10.5px] font-semibold text-rose-600 transition hover:bg-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+    >
+      <RotateCw size={10} /> Retry
+    </button>
+  );
+
   if (msg.kind === "staff") {
     const isAdmin = msg.author_role === "admin";
     const authorName = msg.author_name || (isAdmin ? "Admin" : "Staff");
     return (
-      <div className={`my-1.5 flex items-end gap-2 ${isPending ? "opacity-60" : ""}`}>
+      <div className={`my-2 flex items-end gap-2 ${isPending ? "opacity-60" : ""}`}>
         <Avatar name={authorName} tone={isAdmin ? "admin" : "staff"} className="h-7 w-7 shrink-0 text-[10px]" />
-        <div className={`max-w-[78%] rounded-2xl rounded-bl-sm px-3.5 py-2.5 ${
+        <div className={`max-w-[78%] rounded-2xl rounded-bl-sm px-4 py-3 ${
           isFailed
             ? "border border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30"
             : isAdmin
             ? "bg-accent/10 dark:bg-accent/15"
-            : "bg-slate-100 dark:bg-white/8"
+            : "bg-indigo-50 dark:bg-indigo-500/10"
         }`}>
-          <p className={`mb-0.5 text-[11px] font-semibold ${isAdmin ? "text-accent-text dark:text-accent" : "text-slate-500 dark:text-slate-400"}`}>
+          <p className={`mb-1 text-[11px] font-semibold ${
+            isAdmin ? "text-accent-text dark:text-accent" : "text-indigo-500 dark:text-indigo-300"
+          }`}>
             {authorName} · {isAdmin ? "Admin" : "Staff"}
           </p>
-          <p className="whitespace-pre-wrap text-[13.5px] leading-snug text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
-          {isFailed && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed</p>}
+          <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
+          {isFailed && (
+            <div className="mt-1 flex items-center gap-2">
+              <p className="flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed to send</p>
+              <RetryButton />
+            </div>
+          )}
           {isPending && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-slate-400"><Clock size={10} /> Sending…</p>}
         </div>
       </div>
@@ -64,23 +81,30 @@ function Bubble({ msg }) {
   const fromClient = !!msg.is_client;
   const authorName = msg.author_name || (fromClient ? "Client" : "Staff");
   return (
-    <div className={`my-1.5 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending ? "opacity-60" : ""}`}>
+    <div className={`my-2 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending ? "opacity-60" : ""}`}>
       <Avatar name={authorName} tone={fromClient ? "client" : "admin"} className="h-7 w-7 shrink-0 text-[10px]" />
-      <div className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 ${
+      <div className={`max-w-[78%] rounded-2xl px-4 py-3 ${
         isFailed
           ? "border border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30"
           : fromClient
-          ? "rounded-bl-sm bg-white shadow-sm border border-slate-100 dark:border-white/8 dark:bg-[#1e2130]"
+          ? "rounded-bl-sm border border-amber-100 bg-amber-50/70 shadow-sm dark:border-amber-500/15 dark:bg-amber-500/10"
           : "rounded-br-sm bg-emerald-50 dark:bg-emerald-950/30"
       }`}>
-        <p className="mb-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+        <p className={`mb-1 flex items-center text-[11px] font-semibold ${
+          fromClient ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
+        }`}>
           {authorName}
           <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
             <MessageCircle size={8} /> WhatsApp
           </span>
         </p>
-        <p className="whitespace-pre-wrap text-[13.5px] leading-snug text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
-        {isFailed && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed</p>}
+        <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
+        {isFailed && (
+          <div className="mt-1 flex items-center gap-2">
+            <p className="flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed to send</p>
+            <RetryButton />
+          </div>
+        )}
         {isPending && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-slate-400"><Clock size={10} /> Sending…</p>}
       </div>
     </div>
@@ -164,34 +188,44 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
     setTaskStatus(task.status || "In Progress");
   }, [task.progress, task.status, task.id]);
 
-  // Messages: initial load + live WebSocket subscription (replaces the
-  // old Supabase Realtime channel). subscribeToMessages is now async
-  // (it needs the auth token first to open the socket), so this effect
-  // guards against a late resolve after the task has already changed —
-  // otherwise a slow-to-connect socket for a previous task could still
-  // fire its cleanup after a new one already started.
+  // Messages: initial load + live WebSocket subscription. subscribeToMessages
+  // is synchronous now (see api.js) specifically to avoid a race with React
+  // StrictMode's dev-mode double-mount closing the socket mid-handshake.
   useEffect(() => {
     setMessages([]);
     if (!task?.id) return;
-    let cancelled = false;
-    let unsub = null;
 
     getMessages(task.id).then((data) => {
-      if (!cancelled && Array.isArray(data)) setMessages(data);
+      if (Array.isArray(data)) setMessages(data);
     }).catch(() => {});
 
-    subscribeToMessages(task.id, (m) => {
+    const unsub = subscribeToMessages(task.id, (m) => {
       if (!m) return;
-      setMessages((prev) => prev.some((e) => e.id === m.id) ? prev : [...prev, m]);
-    }).then((fn) => {
-      if (cancelled) fn(); // task changed while the socket was still connecting
-      else unsub = fn;
+      setMessages((prev) => {
+        if (prev.some((e) => e.id === m.id)) return prev; // already have it
+        // The duplicate-flicker fix: our own sent message can arrive back
+        // over the WebSocket before our own POST request has even
+        // resolved (broadcastNewMessages fires right after the DB
+        // insert, server-side, ahead of the HTTP response). Rather than
+        // just appending it alongside the still-pending temp bubble
+        // (briefly showing both), find that matching temp — same kind,
+        // same text, sent moments ago — and replace it in place.
+        const matchIdx = prev.findIndex((e) =>
+          e._status === "pending" &&
+          e.kind === m.kind &&
+          e.text === m.text &&
+          Math.abs(new Date(e.created_at) - new Date(m.created_at)) < 15000
+        );
+        if (matchIdx !== -1) {
+          const next = [...prev];
+          next[matchIdx] = m;
+          return next;
+        }
+        return [...prev, m];
+      });
     });
 
-    return () => {
-      cancelled = true;
-      unsub?.();
-    };
+    return unsub;
   }, [task?.id]);
 
   // Auto-scroll on new messages
@@ -203,29 +237,57 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   const canSend = text.trim().length > 0 && (toStaff || toClient) && !sending;
   const linkList = typeof task.links === "string" ? task.links.split("\n").filter(Boolean) : [];
 
+  // Shared by both the normal send button and Retry, so a retried
+  // message goes through the exact same path (including the same
+  // WS-race protection above) rather than a separate, easier-to-diverge
+  // code path. replaceTemps, when given, are the specific failed bubbles
+  // being retried — removed once the retry attempt resolves either way.
+  async function attemptSend(msgText, wantStaff, wantClient, replaceTemps = null) {
+    const now = new Date().toISOString();
+    const temps = [];
+    if (wantStaff)  temps.push({ id: `ts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "staff",  author_name: user?.name || "Staff", author_role: user?.role || "staff", text: msgText, created_at: now, _status: "pending" });
+    if (wantClient) temps.push({ id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "client", author_name: user?.name || "Staff", is_client: false, text: msgText, created_at: now, _status: "pending" });
+
+    setMessages((p) => {
+      const withoutOld = replaceTemps ? p.filter((m) => !replaceTemps.some((t) => t.id === m.id)) : p;
+      return [...withoutOld, ...temps];
+    });
+
+    try {
+      const result = await sendMessage({ taskId: task.id, text: msgText, toStaff: wantStaff, toClient: wantClient });
+      const real = result?.messages || [];
+      setMessages((p) => {
+        // Remove our temps; the matching real message may already be
+        // present (delivered via the WS race-fix above) or may not be
+        // yet — either way, add whatever from `real` isn't already there.
+        const withoutTemps = p.filter((m) => !temps.some((t) => t.id === m.id));
+        const ids = new Set(withoutTemps.map((m) => m.id));
+        return [...withoutTemps, ...real.filter((r) => !ids.has(r.id))];
+      });
+    } catch {
+      setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
+    }
+  }
+
   async function handleSend() {
     if (!canSend) return;
     const msgText = text;
     setText("");
     setSending(true);
-    const now = new Date().toISOString();
-    const temps = [];
-    if (toStaff)  temps.push({ id: `ts-${Date.now()}`,  kind: "staff",  author_name: user?.name || "Staff", author_role: user?.role || "staff", text: msgText, created_at: now, _status: "pending" });
-    if (toClient) temps.push({ id: `tc-${Date.now()}`,  kind: "client", author_name: user?.name || "Staff", is_client: false, text: msgText, created_at: now, _status: "pending" });
-    setMessages((p) => [...p, ...temps]);
     try {
-      const result = await sendMessage({ taskId: task.id, text: msgText, toStaff, toClient });
-      const real = result?.messages || [];
-      setMessages((p) => {
-        const without = p.filter((m) => !temps.some((t) => t.id === m.id));
-        const ids = new Set(without.map((m) => m.id));
-        return [...without, ...real.filter((r) => !ids.has(r.id))];
-      });
-    } catch {
-      setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
+      await attemptSend(msgText, toStaff, toClient);
     } finally {
       setSending(false);
     }
+  }
+
+  // Retries a single failed bubble using its own original text — a
+  // failed "staff" bubble retries as staff-only, a failed "client"
+  // bubble retries as client-only, matching how they were originally
+  // split into separate temp entries in the first place.
+  async function handleRetry(msg) {
+    setMessages((p) => p.map((m) => m.id === msg.id ? { ...m, _status: "pending" } : m));
+    await attemptSend(msg.text, msg.kind === "staff", msg.kind === "client", [msg]);
   }
 
   async function handleProgressCommit(value) {
@@ -380,7 +442,7 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
             <p className="text-[12.5px] text-slate-400">No messages yet</p>
           </div>
         ) : (
-          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} />)
+          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} onRetry={handleRetry} />)
         )}
       </div>
 
