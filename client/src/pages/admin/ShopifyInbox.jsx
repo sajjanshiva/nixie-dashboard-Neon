@@ -7,18 +7,20 @@ import toast from "react-hot-toast";
 
 // ── Assign control (leads) — mirrors OrderAssignControl/ReassignOrderControl
 //    below, minus the phone field (leads already have one on file) ─────────
-function AssignControl({ currentAssigneeId, currentAssigneeName, staff, onConfirm }) {
+function AssignControl({ currentAssigneeId, staff, onConfirm }) {
   const [open, setOpen] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
 
+  const assignedStaff = staff.find((s) => s.id === currentAssigneeId);
+
   if (!open) {
-    return currentAssigneeId ? (
+    return assignedStaff ? (
       <div className="flex flex-1 items-center justify-between gap-2">
         <span className="truncate text-[11.5px] text-slate-500 dark:text-slate-400">
-          → Assigned to <span className="font-semibold">{currentAssigneeName || "staff"}</span>
+          → Assigned to <span className="font-semibold">{assignedStaff.name}</span>
         </span>
         <button
-          onClick={() => { setAssigneeId(currentAssigneeId || ""); setOpen(true); }}
+          onClick={() => { setAssigneeId(assignedStaff.id); setOpen(true); }}
           className="shrink-0 text-[11.5px] font-medium text-accent hover:underline"
         >
           Reassign
@@ -49,7 +51,10 @@ function AssignControl({ currentAssigneeId, currentAssigneeName, staff, onConfir
       </select>
       <button
         onClick={() => {
-          if (!assigneeId) { toast.error("Pick a staff member"); return; }
+          if (!assigneeId || !staff.some((s) => s.id === assigneeId)) {
+            toast.error("Pick a staff member");
+            return;
+          }
           onConfirm(assigneeId);
           setOpen(false);
         }}
@@ -79,7 +84,11 @@ function OrderAssignControl({ order, staff, onConfirm, submitting }) {
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setAssigneeId("");
+          setPhone(order.customer_phone || "");
+          setOpen(true);
+        }}
         className="btn-primary flex-1 py-1.5 text-[12px]"
       >
         Assign
@@ -109,7 +118,7 @@ function OrderAssignControl({ order, staff, onConfirm, submitting }) {
         </select>
         <button
           onClick={() => {
-            if (!phone.trim() || !assigneeId) {
+            if (!phone.trim() || !assigneeId || !staff.some((s) => s.id === assigneeId)) {
               toast.error("Enter a phone number and pick a staff member");
               return;
             }
@@ -133,10 +142,9 @@ function OrderAssignControl({ order, staff, onConfirm, submitting }) {
   );
 }
 
-// ── Reassign control — shown once an order already has a task, lets
-//    admin move it to a different staff member without touching the
-//    phone number or any chat history already on the task ────────────────
-function ReassignOrderControl({ currentAssigneeId, currentAssigneeName, staff, onConfirm }) {
+// ── Reassign control — shown once an order already has a valid task & assignee,
+//    lets admin move it to a different staff member
+function ReassignOrderControl({ assignedStaff, staff, onConfirm }) {
   const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(null);
 
@@ -144,7 +152,7 @@ function ReassignOrderControl({ currentAssigneeId, currentAssigneeName, staff, o
     return (
       <div className="flex flex-1 items-center justify-between gap-2">
         <span className="truncate text-[11.5px] text-slate-500 dark:text-slate-400">
-          → Assigned to <span className="font-semibold">{currentAssigneeName || "staff"}</span>
+          → Assigned to <span className="font-semibold">{assignedStaff.name}</span>
         </span>
         <button
           onClick={() => setEditing(true)}
@@ -183,11 +191,12 @@ function ReassignOrderControl({ currentAssigneeId, currentAssigneeName, staff, o
   return (
     <select
       autoFocus
-      value={currentAssigneeId || ""}
+      value={assignedStaff.id}
       onChange={(e) => {
         const id = e.target.value;
-        if (!id || id === currentAssigneeId) { setEditing(false); return; }
-        setPending(staff.find((s) => s.id === id));
+        if (!id || id === assignedStaff.id) { setEditing(false); return; }
+        const found = staff.find((s) => s.id === id);
+        if (found) setPending(found);
       }}
       onBlur={() => setEditing(false)}
       className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
@@ -227,7 +236,7 @@ export default function ShopifyInbox() {
     ]).then(([o, l, m]) => {
       setOrders(o);
       setLeads(l);
-      setStaff(m.filter((x) => x.role === "staff"));
+      setStaff(m.filter((x) => x.role === "staff" && !x.pending && x.name));
     }).finally(() => setLoading(false));
   }, []);
 
@@ -235,14 +244,22 @@ export default function ShopifyInbox() {
     setAssigningOrderId(order.id);
     try {
       const task = await assignOrder(order, { phone, assigneeId });
+      const assigned = staff.find((s) => s.id === assigneeId);
+      const assignedName = assigned?.name || task.assignee?.name || "";
       setOrders((os) =>
         os.map((o) =>
           o.id === order.id
-            ? { ...o, status: "assigned", task_id: task.id, task: { id: task.id, assignee: task.assignee } }
+            ? {
+                ...o,
+                customer_phone: phone,
+                status: "assigned",
+                task_id: task.id,
+                task: { id: task.id, assignee: assigned || task.assignee },
+              }
             : o
         )
       );
-      toast.success(`Order assigned to ${task.assignee?.name || "staff"}`);
+      toast.success(assignedName ? `Order assigned to ${assignedName}` : "Order assigned");
     } catch (err) {
       toast.error(err.message || "Failed to assign order");
     } finally {
@@ -261,23 +278,31 @@ export default function ShopifyInbox() {
             : o
         )
       );
-      toast.success(`Moved to ${newAssignee?.name || "staff"}`);
+      toast.success(newAssignee?.name ? `Moved to ${newAssignee.name}` : "Order reassigned");
     } catch (err) {
       toast.error(err.message || "Failed to reassign");
     }
   }
 
   async function handleAssignLead(leadId, assigneeId) {
-    await assignLead(leadId, assigneeId || null);
-    const newAssignee = assigneeId ? staff.find((s) => s.id === assigneeId) : null;
-    setLeads((ls) =>
-      ls.map((l) =>
-        l.id === leadId
-          ? { ...l, assignee_id: assigneeId, assignee: newAssignee, status: assigneeId ? "assigned" : "unassigned" }
-          : l
-      )
-    );
-    toast.success(`Lead ${assigneeId ? `assigned to ${newAssignee?.name || "staff"}` : "unassigned"}`);
+    try {
+      await assignLead(leadId, assigneeId || null);
+      const newAssignee = assigneeId ? staff.find((s) => s.id === assigneeId) : null;
+      setLeads((ls) =>
+        ls.map((l) =>
+          l.id === leadId
+            ? { ...l, assignee_id: assigneeId, assignee: newAssignee, status: assigneeId ? "assigned" : "unassigned" }
+            : l
+        )
+      );
+      if (newAssignee) {
+        toast.success(`Lead assigned to ${newAssignee.name}`);
+      } else {
+        toast.success("Lead unassigned");
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to assign lead");
+    }
   }
 
   const viewing = !viewingRef
@@ -335,49 +360,57 @@ export default function ShopifyInbox() {
           {leads.length === 0 && (
             <p className="text-[13px] text-slate-400">No leads yet.</p>
           )}
-          {leads.map((l) => (
-            <ItemCard key={l.id}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Tag size={12} className="text-amber-500" />
-                  <span className="text-[11.5px] font-bold text-amber-600">
-                    {l.lead_number || "Lead"}
+          {leads.map((l) => {
+            const assignedStaff = staff.find((s) => s.id === (l.assignee_id || l.assignee?.id));
+            const isAssigned = Boolean(assignedStaff);
+
+            return (
+              <ItemCard key={l.id}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Tag size={12} className="text-amber-500" />
+                    <span className="text-[11.5px] font-bold text-amber-600">
+                      {l.lead_number || "Lead"}
+                    </span>
+                  </div>
+                  <span
+                    className={`badge capitalize ${
+                      !isAssigned
+                        ? "badge-slate"
+                        : l.status === "contacted"
+                        ? "badge-success"
+                        : "badge-accent"
+                    }`}
+                  >
+                    {!isAssigned ? "unassigned" : l.status}
                   </span>
                 </div>
-                <span
-                  className={`badge capitalize ${
-                    l.status === "unassigned" ? "badge-slate" : l.status === "contacted" ? "badge-success" : "badge-accent"
-                  }`}
-                >
-                  {l.status}
-                </span>
-              </div>
 
-              <div>
-                <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                  {l.name}
-                </p>
-                <p className="truncate text-[12px] text-slate-400">
-                  {l.outfit_type} · {l.price_estimate}
-                </p>
-              </div>
+                <div>
+                  <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                    {l.name}
+                  </p>
+                  <p className="truncate text-[12px] text-slate-400">
+                    {l.outfit_type} · {l.price_estimate}
+                  </p>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setViewingRef({ type: "lead", id: l.id })}
-                  className="btn-secondary flex-1 py-1.5 text-[12px]"
-                >
-                  View Details
-                </button>
-                <AssignControl
-                  currentAssigneeId={l.assignee_id}
-                  currentAssigneeName={l.assignee?.name}
-                  staff={staff}
-                  onConfirm={(id) => handleAssignLead(l.id, id)}
-                />
-              </div>
-            </ItemCard>
-          ))}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setViewingRef({ type: "lead", id: l.id })}
+                    className="btn-secondary flex-1 py-1.5 text-[12px]"
+                  >
+                    View Details
+                  </button>
+                  <AssignControl
+                    currentAssigneeId={assignedStaff?.id}
+                    staff={staff}
+                    onConfirm={(id) => handleAssignLead(l.id, id)}
+                  />
+                </div>
+              </ItemCard>
+            );
+          })}
         </div>
       ) : (
         /* ── ORDERS ── */
@@ -385,59 +418,63 @@ export default function ShopifyInbox() {
           {orders.length === 0 && (
             <p className="text-[13px] text-slate-400">No orders yet.</p>
           )}
-          {orders.map((o) => (
-            <ItemCard key={o.id}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <ShoppingBag size={12} className="text-emerald-500" />
-                  <span className="text-[11.5px] font-bold text-emerald-600">
-                    {o.order_number || "#"}
+          {orders.map((o) => {
+            const assignedStaff = staff.find((s) => s.id === o.task?.assignee?.id);
+            const isOrderAssigned = Boolean(o.task_id && assignedStaff);
+
+            return (
+              <ItemCard key={o.id}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ShoppingBag size={12} className="text-emerald-500" />
+                    <span className="text-[11.5px] font-bold text-emerald-600">
+                      {o.order_number || "#"}
+                    </span>
+                  </div>
+                  <span
+                    className={`badge capitalize ${
+                      isOrderAssigned ? "badge-accent" : "badge-slate"
+                    }`}
+                  >
+                    {isOrderAssigned ? "Assigned" : "Unassigned"}
                   </span>
                 </div>
-                <span
-                  className={`badge capitalize ${
-                    o.task_id ? "badge-accent" : "badge-slate"
-                  }`}
-                >
-                  {o.task_id ? "Assigned" : "Unassigned"}
-                </span>
-              </div>
 
-              <div>
-                <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                  {o.customer_name}
-                </p>
-                <p className="truncate text-[12px] text-slate-400">
-                  {o.items} · {o.price}
-                </p>
-              </div>
+                <div>
+                  <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                    {o.customer_name}
+                  </p>
+                  <p className="truncate text-[12px] text-slate-400">
+                    {o.items} · {o.price}
+                  </p>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setViewingRef({ type: "order", id: o.id })}
-                  className="btn-secondary flex-1 py-1.5 text-[12px]"
-                >
-                  View Details
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setViewingRef({ type: "order", id: o.id })}
+                    className="btn-secondary flex-1 py-1.5 text-[12px]"
+                  >
+                    View Details
+                  </button>
 
-                {o.task_id ? (
-                  <ReassignOrderControl
-                    currentAssigneeId={o.task?.assignee?.id}
-                    currentAssigneeName={o.task?.assignee?.name}
-                    staff={staff}
-                    onConfirm={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
-                  />
-                ) : (
-                  <OrderAssignControl
-                    order={o}
-                    staff={staff}
-                    submitting={assigningOrderId === o.id}
-                    onConfirm={(payload) => handleAssignOrder(o, payload)}
-                  />
-                )}
-              </div>
-            </ItemCard>
-          ))}
+                  {isOrderAssigned ? (
+                    <ReassignOrderControl
+                      assignedStaff={assignedStaff}
+                      staff={staff}
+                      onConfirm={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
+                    />
+                  ) : (
+                    <OrderAssignControl
+                      order={o}
+                      staff={staff}
+                      submitting={assigningOrderId === o.id}
+                      onConfirm={(payload) => handleAssignOrder(o, payload)}
+                    />
+                  )}
+                </div>
+              </ItemCard>
+            );
+          })}
         </div>
       )}
 

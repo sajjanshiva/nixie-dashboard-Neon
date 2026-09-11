@@ -70,7 +70,7 @@ function RequestCard({ item, kind, onDecide }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">
-            {item.staff?.name || item.staffName || "Staff"}
+            {item.staff?.name || item.staffName || "Former Employee"}
           </p>
           <p className="text-[12px] text-slate-400">
             {kind === "leave"

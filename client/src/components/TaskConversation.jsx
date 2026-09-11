@@ -289,8 +289,8 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   async function attemptSend(msgText, wantStaff, wantClient, replaceTemps = null) {
     const now = new Date().toISOString();
     const temps = [];
-    if (wantStaff)  temps.push({ id: `ts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "staff",  author_name: user?.name || "Staff", author_role: user?.role || "staff", text: msgText, created_at: now, _status: "pending" });
-    if (wantClient) temps.push({ id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "client", author_name: user?.name || "Staff", is_client: false, text: msgText, created_at: now, _status: "pending" });
+    if (wantStaff)  temps.push({ id: `ts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "staff",  author_name: user?.name || "Me", author_role: user?.role || "staff", text: msgText, created_at: now, _status: "pending" });
+    if (wantClient) temps.push({ id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, kind: "client", author_name: user?.name || "Me", is_client: false, text: msgText, created_at: now, _status: "pending" });
 
     setMessages((p) => {
       const withoutOld = replaceTemps ? p.filter((m) => !replaceTemps.some((t) => t.id === m.id)) : p;

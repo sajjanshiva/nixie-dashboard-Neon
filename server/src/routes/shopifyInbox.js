@@ -13,16 +13,25 @@ function requireAdmin(req, res, next) {
 
 router.get("/orders", requireAdmin, async (req, res) => {
   const { rows } = await pool.query(`
-    select o.*, t.id as task_id_full, t.assignee_id as task_assignee_id, p.name as task_assignee_name
+    select o.*, t.id as task_id_full, t.assignee_id as task_assignee_id, p.name as task_assignee_name, t.client_phone as task_client_phone
       from shopify_orders o
       left join tasks t on t.id = o.task_id
       left join profiles p on p.id = t.assignee_id
      order by o.created_at desc
   `);
-  const orders = rows.map(({ task_id_full, task_assignee_id, task_assignee_name, ...o }) => ({
-    ...o,
-    task: task_id_full ? { id: task_id_full, assignee: task_assignee_id ? { id: task_assignee_id, name: task_assignee_name } : null } : null,
-  }));
+  const orders = rows.map(({ task_id_full, task_assignee_id, task_assignee_name, task_client_phone, ...o }) => {
+    const hasValidAssignee = Boolean(task_assignee_id && task_assignee_name);
+    return {
+      ...o,
+      customer_phone: o.customer_phone || task_client_phone || null,
+      task: task_id_full
+        ? {
+            id: task_id_full,
+            assignee: hasValidAssignee ? { id: task_assignee_id, name: task_assignee_name } : null,
+          }
+        : null,
+    };
+  });
   res.json(orders);
 });
 
@@ -35,9 +44,8 @@ router.patch("/orders/:id/status", requireAdmin, async (req, res) => {
 
 // POST /api/shopify-inbox/orders/:id/assign
 // Body: { phone, assigneeId }
-// Converts an order into a real task (same as the old client-side
-// assignOrder()), links it back to the order, and notifies the assignee
-// — replacing trg_notify_task_assignee for this specific path.
+// Converts an order into a real task (or re-assigns if task already exists),
+// links it back to the order, and notifies the assignee.
 router.post("/orders/:id/assign", requireAdmin, async (req, res) => {
   const { phone, assigneeId } = req.body || {};
   const { rows: orderRows } = await pool.query("select * from shopify_orders where id = $1", [req.params.id]);
@@ -45,15 +53,33 @@ router.post("/orders/:id/assign", requireAdmin, async (req, res) => {
   if (!order) return res.status(404).json({ message: "Order not found" });
 
   const title = order.order_number ? `Order ${order.order_number}` : "Shopify Order";
-  const { rows: taskRows } = await pool.query(
-    `insert into tasks (title, client_name, client_phone, assignee_id, source, shopify_order_id, shopify_order_number, shopify_items, shopify_price)
-     values ($1, $2, $3, $4, 'shopify_order', $5, $6, $7, $8)
-     returning *`,
-    [title, order.customer_name, phone, assigneeId, order.shopify_order_id, order.order_number, order.items, order.price]
-  );
-  const task = taskRows[0];
+  let task;
 
-  await pool.query("update shopify_orders set task_id = $1, status = 'assigned' where id = $2", [task.id, order.id]);
+  if (order.task_id) {
+    // If a task already exists for this order, update assignee and phone
+    const { rows: updatedTasks } = await pool.query(
+      `update tasks
+          set assignee_id = $1,
+              client_phone = coalesce($2, client_phone)
+        where id = $3
+      returning *`,
+      [assigneeId || null, phone || null, order.task_id]
+    );
+    task = updatedTasks[0];
+  }
+
+  if (!task) {
+    const { rows: taskRows } = await pool.query(
+      `insert into tasks (title, client_name, client_phone, assignee_id, source, shopify_order_id, shopify_order_number, shopify_items, shopify_price)
+       values ($1, $2, $3, $4, 'shopify_order', $5, $6, $7, $8)
+       returning *`,
+      [title, order.customer_name, phone, assigneeId, order.shopify_order_id, order.order_number, order.items, order.price]
+    );
+    task = taskRows[0];
+    await pool.query("update shopify_orders set task_id = $1, status = 'assigned' where id = $2", [task.id, order.id]);
+  } else {
+    await pool.query("update shopify_orders set status = 'assigned' where id = $1", [order.id]);
+  }
 
   if (assigneeId) {
     await notifyUser(assigneeId, `You were assigned: ${title}`, "/staff/my-tasks", { relatedTaskId: task.id });
@@ -80,10 +106,15 @@ router.get("/leads", async (req, res) => {
   sql += " order by l.created_at desc";
 
   const { rows } = await pool.query(sql, params);
-  const leads = rows.map(({ assignee_profile_id, assignee_name, ...l }) => ({
-    ...l,
-    assignee: assignee_profile_id ? { id: assignee_profile_id, name: assignee_name } : null,
-  }));
+  const leads = rows.map(({ assignee_profile_id, assignee_name, ...l }) => {
+    const hasValidAssignee = Boolean(assignee_profile_id && assignee_name);
+    return {
+      ...l,
+      assignee_id: hasValidAssignee ? assignee_profile_id : null,
+      assignee: hasValidAssignee ? { id: assignee_profile_id, name: assignee_name } : null,
+      status: hasValidAssignee ? l.status : "unassigned",
+    };
+  });
   res.json(leads);
 });
 
