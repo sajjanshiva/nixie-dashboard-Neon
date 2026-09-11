@@ -1,0 +1,83 @@
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import http from "http";
+
+import { requireAuth } from "./middleware/auth.js";
+import { attachWebSocketServer } from "./lib/ws.js";
+import authRoute from "./routes/auth.js";
+import messagesRoute from "./routes/messages.js";
+import notificationsRoute from "./routes/notifications.js";
+import tasksRoute from "./routes/tasks.js";
+import attendanceRoute from "./routes/attendance.js";
+import teamRoute from "./routes/team.js";
+import leavesRoute from "./routes/leaves.js";
+import reimbursementsRoute from "./routes/reimbursements.js";
+import shopifyInboxRoute from "./routes/shopifyInbox.js";
+import imagekitAuthRoute from "./routes/imagekitAuth.js";
+import shopifyWebhooks from "./routes/webhooksShopify.js";
+import whatsappWebhooks from "./routes/webhooksWhatsapp.js";
+import pushRoute from "./routes/push.js";
+import pushWebhooks from "./routes/webhooksPush.js";
+import settingsRoute from "./routes/settings.js";
+import holidaysRoute from "./routes/holidays.js";
+import performanceRoute from "./routes/performance.js";
+
+const app = express();
+
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173" }));
+
+// Shopify + WhatsApp webhooks need the RAW request body (for signature
+// verification), so both are mounted BEFORE express.json() and only
+// apply to their own paths.
+app.use("/webhooks/shopify", express.raw({ type: "application/json" }), shopifyWebhooks);
+app.use("/webhooks/whatsapp", express.raw({ type: "application/json" }), whatsappWebhooks);
+
+// Everything else uses normal JSON parsing.
+app.use(express.json());
+
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+// Login + invite-accept are public — no session exists yet at this point.
+app.use("/api/auth", authRoute);
+
+// GET /api/auth/me — used on page load to restore a session from a
+// saved token (and doubles as a validity check: requireAuth rejects an
+// expired/invalid token automatically).
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  const { password_hash, invite_token, ...safeProfile } = req.user;
+  res.json({ profile: safeProfile });
+});
+
+// Previously called by a Postgres trigger via pg_net (Supabase-only —
+// no equivalent on Neon). Round 2 will replace this call path with a
+// direct call from application code at the point a notification is
+// created, instead of a database trigger. Left mounted for now since
+// the route itself (secret-verified, not requireAuth) still works
+// standalone.
+app.use("/webhooks/push", pushWebhooks);
+
+// All routes below require a valid session (our own JWT now, not Supabase).
+app.use("/api/messages", requireAuth, messagesRoute);
+app.use("/api/notifications", requireAuth, notificationsRoute);
+app.use("/api/tasks", requireAuth, tasksRoute);
+app.use("/api/attendance", requireAuth, attendanceRoute);
+app.use("/api/team", requireAuth, teamRoute);
+app.use("/api/leaves", requireAuth, leavesRoute);
+app.use("/api/reimbursements", requireAuth, reimbursementsRoute);
+app.use("/api/shopify-inbox", requireAuth, shopifyInboxRoute);
+app.use("/api/imagekit-auth", requireAuth, imagekitAuthRoute);
+app.use("/api/push", requireAuth, pushRoute);
+app.use("/api/settings", requireAuth, settingsRoute);
+app.use("/api/holidays", requireAuth, holidaysRoute);
+app.use("/api/performance", requireAuth, performanceRoute);
+
+// Wrapping Express in a plain http.Server (instead of just app.listen)
+// so the WebSocket server can attach to the same port and handle the
+// "upgrade" requests browsers send when opening a WebSocket — Express
+// alone has no concept of this, it only understands normal HTTP.
+const server = http.createServer(app);
+attachWebSocketServer(server);
+
+const port = process.env.PORT || 5000;
+server.listen(port, () => console.log(`Nixie Dashboard server running on http://localhost:${port}`));

@@ -1,0 +1,170 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Root CSS Variables ── */
+:root {
+  --accent:       #22D3D3;
+  --accent-soft:  #E0FAFA;
+  --accent-text:  #0E9494;
+  --danger:       #FF6B5E;
+  --radius:       12px;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Native <select> dropdown popups — don't rely on color-scheme alone
+   (support is inconsistent across browsers). Explicitly set the popup's
+   own background/text so it's always readable against itself, and center
+   the option text. */
+select {
+  text-align-last: center;
+}
+option {
+  text-align: center;
+  background-color: #ffffff;
+  color: #1e293b; /* slate-800 */
+}
+.dark option {
+  background-color: #1A1D27;
+  color: #f1f5f9; /* slate-100 */
+}
+
+/* ── Base resets ── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 transition-colors duration-200;
+  }
+
+  .dark body {
+    @apply bg-[#0F1117] text-slate-100;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-200;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-slate-700;
+  }
+
+  /* Range input accent */
+  input[type="range"] {
+    accent-color: var(--accent);
+  }
+}
+
+/* ── Utility layers ── */
+@layer components {
+  /* Glass card — light */
+  .glass-card {
+    @apply border border-white/60 bg-white/80 backdrop-blur-xl shadow-glass;
+  }
+  /* Glass card — dark */
+  .dark .glass-card {
+    @apply border-white/10 bg-white/5 shadow-glass-dark;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-150;
+  }
+  .nav-item-inactive {
+    @apply text-slate-500 hover:bg-slate-50 hover:text-slate-700;
+  }
+  .dark .nav-item-inactive {
+    @apply text-slate-400 hover:bg-white/5 hover:text-slate-200;
+  }
+  .nav-item-active {
+    @apply bg-accent/10 text-accent-text font-semibold;
+  }
+  .dark .nav-item-active {
+    @apply bg-accent/20 text-accent;
+  }
+
+  /* Card */
+  .card {
+    @apply rounded-2xl border border-slate-100 bg-white shadow-card;
+  }
+  .dark .card {
+    @apply border-slate-800 bg-[#1A1D27];
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply rounded-xl bg-accent px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-accent-dark active:scale-[0.98] disabled:opacity-50;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[13.5px] font-medium text-slate-700 transition hover:bg-slate-50 active:scale-[0.98];
+  }
+  .dark .btn-secondary {
+    @apply border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-2 focus:ring-accent/20;
+  }
+  .dark .input {
+    @apply border-slate-700 bg-slate-800 text-slate-100 placeholder:text-slate-500 focus:border-accent;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold;
+  }
+  .badge-accent {
+    @apply bg-accent/10 text-accent-text;
+  }
+  .dark .badge-accent {
+    @apply bg-accent/15 text-accent;
+  }
+  .badge-danger {
+    @apply bg-red-50 text-red-600;
+  }
+  .dark .badge-danger {
+    @apply bg-red-500/15 text-red-400;
+  }
+  .badge-success {
+    @apply bg-emerald-50 text-emerald-700;
+  }
+  .dark .badge-success {
+    @apply bg-emerald-500/15 text-emerald-400;
+  }
+  .badge-warning {
+    @apply bg-amber-50 text-amber-700;
+  }
+  .dark .badge-warning {
+    @apply bg-amber-500/15 text-amber-400;
+  }
+  .badge-slate {
+    @apply bg-slate-100 text-slate-600;
+  }
+  .dark .badge-slate {
+    @apply bg-slate-700 text-slate-300;
+  }
+}

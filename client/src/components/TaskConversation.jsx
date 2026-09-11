@@ -1,0 +1,451 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+  MessageCircle, Users, Send, Check, Sparkles, ChevronLeft,
+  AlertCircle, Clock, Info, ChevronUp, CheckCircle2,
+} from "lucide-react";
+import Avatar from "./Avatar.jsx";
+import {
+  getMessages, subscribeToMessages, sendMessage,
+  updateTaskProgress, markTaskComplete, undoTaskComplete,
+} from "../lib/api.js";
+import { useAuth } from "../lib/AuthContext.jsx";
+
+// ── Chat bubble components ──────────────────────────────────────────────
+function Bubble({ msg }) {
+  if (!msg) return null;
+  const isPending = msg._status === "pending";
+  const isFailed  = msg._status === "failed";
+
+  if (msg.kind === "system") {
+    let formattedDate = "";
+    if (msg.created_at) {
+      try {
+        formattedDate = new Date(msg.created_at).toLocaleString();
+      } catch {
+        formattedDate = "";
+      }
+    }
+    return (
+      <div className="my-3 flex justify-center">
+        <div className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-500 dark:bg-white/8 dark:text-slate-400">
+          <Sparkles size={10} className="text-slate-400" />
+          {msg.text || ""}
+          {formattedDate && <span className="text-slate-300 dark:text-slate-600">·</span>}
+          {formattedDate && <span>{formattedDate}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  if (msg.kind === "staff") {
+    const isAdmin = msg.author_role === "admin";
+    const authorName = msg.author_name || (isAdmin ? "Admin" : "Staff");
+    return (
+      <div className={`my-1.5 flex items-end gap-2 ${isPending ? "opacity-60" : ""}`}>
+        <Avatar name={authorName} tone={isAdmin ? "admin" : "staff"} className="h-7 w-7 shrink-0 text-[10px]" />
+        <div className={`max-w-[78%] rounded-2xl rounded-bl-sm px-3.5 py-2.5 ${
+          isFailed
+            ? "border border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30"
+            : isAdmin
+            ? "bg-accent/10 dark:bg-accent/15"
+            : "bg-slate-100 dark:bg-white/8"
+        }`}>
+          <p className={`mb-0.5 text-[11px] font-semibold ${isAdmin ? "text-accent-text dark:text-accent" : "text-slate-500 dark:text-slate-400"}`}>
+            {authorName} · {isAdmin ? "Admin" : "Staff"}
+          </p>
+          <p className="whitespace-pre-wrap text-[13.5px] leading-snug text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
+          {isFailed && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed</p>}
+          {isPending && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-slate-400"><Clock size={10} /> Sending…</p>}
+        </div>
+      </div>
+    );
+  }
+
+  const fromClient = !!msg.is_client;
+  const authorName = msg.author_name || (fromClient ? "Client" : "Staff");
+  return (
+    <div className={`my-1.5 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending ? "opacity-60" : ""}`}>
+      <Avatar name={authorName} tone={fromClient ? "client" : "admin"} className="h-7 w-7 shrink-0 text-[10px]" />
+      <div className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 ${
+        isFailed
+          ? "border border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30"
+          : fromClient
+          ? "rounded-bl-sm bg-white shadow-sm border border-slate-100 dark:border-white/8 dark:bg-[#1e2130]"
+          : "rounded-br-sm bg-emerald-50 dark:bg-emerald-950/30"
+      }`}>
+        <p className="mb-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          {authorName}
+          <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+            <MessageCircle size={8} /> WhatsApp
+          </span>
+        </p>
+        <p className="whitespace-pre-wrap text-[13.5px] leading-snug text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
+        {isFailed && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed</p>}
+        {isPending && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-slate-400"><Clock size={10} /> Sending…</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── Task Info Bottom Sheet (mobile) ─────────────────────────────────────
+function InfoSheet({ task, progress, onProgressCommit, onComplete, onUndoComplete, onClose }) {
+  if (!task) return null;
+  const isComplete = task.status === "Complete";
+  const linkList = typeof task.links === "string" ? task.links.split("\n").filter(Boolean) : [];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[75vh] overflow-y-auto rounded-t-2xl bg-white px-5 pb-8 pt-2 shadow-2xl dark:bg-[#1A1D27] animate-slide-in-up">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200 dark:bg-slate-700" />
+        <div className="mb-3 flex items-center justify-between">
+          <span className={`badge ${isComplete ? "badge-success" : "badge-accent"}`}>{task.status || "In Progress"}</span>
+          {task.due_date && <span className="text-[11.5px] text-slate-400">Due {task.due_date}</span>}
+        </div>
+        <h3 className="mb-1 text-[16px] font-bold text-slate-900 dark:text-white">{task.title || "Untitled Task"}</h3>
+        <p className="mb-4 text-[12px] text-slate-400">Client: {task.client_name || "—"} · Staff: {task.assignee?.name || "—"}</p>
+
+        {(task.client_phone || task.description || linkList.length > 0) && (
+          <div className="mb-4 rounded-xl bg-slate-50 p-3 text-[12.5px] dark:bg-[#1A1D27] space-y-1">
+            {task.client_phone && <p><span className="text-slate-400 dark:text-slate-400">Phone:</span> <span className="text-slate-700 dark:text-white">{task.client_phone}</span></p>}
+            {task.description && <p><span className="text-slate-400 dark:text-slate-400">Description:</span> <span className="text-slate-700 dark:text-white">{task.description}</span></p>}
+            {linkList.map((l, i) => (
+              <a key={i} href={l.trim()} target="_blank" rel="noreferrer" className="block text-accent hover:underline">{l.trim()}</a>
+            ))}
+          </div>
+        )}
+
+        <div className="mb-4">
+          <div className="mb-1.5 flex items-center justify-between text-[12px]">
+            <span className="font-semibold text-slate-500 dark:text-slate-400">Progress</span>
+            <span className="font-bold text-accent">{progress}%</span>
+          </div>
+          <input type="range" min={0} max={100} defaultValue={progress}
+            onMouseUp={(e) => onProgressCommit(Number(e.target.value))}
+            onTouchEnd={(e) => onProgressCommit(Number(e.target.value))}
+            className="w-full" style={{ accentColor: "#22D3D3" }}
+          />
+        </div>
+
+        {isComplete ? (
+          <button onClick={onUndoComplete} className="w-full rounded-xl bg-emerald-50 py-3 text-[13.5px] font-bold text-emerald-600 hover:bg-emerald-100 transition dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50">
+            Completed · Undo
+          </button>
+        ) : (
+          <button onClick={onComplete} className="w-full rounded-xl bg-emerald-500 py-3 text-[13.5px] font-bold text-white hover:bg-emerald-600 transition">
+            Mark Complete
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────
+// `staffToggleLabel` = "Staff" on admin side, "Admin" on staff side.
+export default function TaskConversation({ task, staffToggleLabel = "Staff", onBack, onProgressChange }) {
+  if (!task) return null;
+
+  const { user }   = useAuth();
+  const [messages, setMessages] = useState([]);
+  const [toStaff, setToStaff]   = useState(true);
+  const [toClient, setToClient] = useState(false);
+  const [text, setText]         = useState("");
+  const [progress, setProgress] = useState(task.progress ?? 0);
+  const [taskStatus, setTaskStatus] = useState(task.status || "In Progress");
+  const [sending, setSending]   = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false); // desktop collapsible
+  const [infoSheetOpen, setInfoSheetOpen] = useState(false); // mobile info sheet
+  const scrollRef = useRef(null);
+
+  // Sync local state when task prop changes (e.g. after mark complete in parent)
+  useEffect(() => {
+    setProgress(task.progress ?? 0);
+    setTaskStatus(task.status || "In Progress");
+  }, [task.progress, task.status, task.id]);
+
+  // Messages: initial load + live WebSocket subscription (replaces the
+  // old Supabase Realtime channel). subscribeToMessages is now async
+  // (it needs the auth token first to open the socket), so this effect
+  // guards against a late resolve after the task has already changed —
+  // otherwise a slow-to-connect socket for a previous task could still
+  // fire its cleanup after a new one already started.
+  useEffect(() => {
+    setMessages([]);
+    if (!task?.id) return;
+    let cancelled = false;
+    let unsub = null;
+
+    getMessages(task.id).then((data) => {
+      if (!cancelled && Array.isArray(data)) setMessages(data);
+    }).catch(() => {});
+
+    subscribeToMessages(task.id, (m) => {
+      if (!m) return;
+      setMessages((prev) => prev.some((e) => e.id === m.id) ? prev : [...prev, m]);
+    }).then((fn) => {
+      if (cancelled) fn(); // task changed while the socket was still connecting
+      else unsub = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [task?.id]);
+
+  // Auto-scroll on new messages
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  const isComplete = taskStatus === "Complete";
+  const canSend = text.trim().length > 0 && (toStaff || toClient) && !sending;
+  const linkList = typeof task.links === "string" ? task.links.split("\n").filter(Boolean) : [];
+
+  async function handleSend() {
+    if (!canSend) return;
+    const msgText = text;
+    setText("");
+    setSending(true);
+    const now = new Date().toISOString();
+    const temps = [];
+    if (toStaff)  temps.push({ id: `ts-${Date.now()}`,  kind: "staff",  author_name: user?.name || "Staff", author_role: user?.role || "staff", text: msgText, created_at: now, _status: "pending" });
+    if (toClient) temps.push({ id: `tc-${Date.now()}`,  kind: "client", author_name: user?.name || "Staff", is_client: false, text: msgText, created_at: now, _status: "pending" });
+    setMessages((p) => [...p, ...temps]);
+    try {
+      const result = await sendMessage({ taskId: task.id, text: msgText, toStaff, toClient });
+      const real = result?.messages || [];
+      setMessages((p) => {
+        const without = p.filter((m) => !temps.some((t) => t.id === m.id));
+        const ids = new Set(without.map((m) => m.id));
+        return [...without, ...real.filter((r) => !ids.has(r.id))];
+      });
+    } catch {
+      setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleProgressCommit(value) {
+    setProgress(value);
+    try {
+      const result = await updateTaskProgress(task.id, value);
+      // Backend reverts status to "In Progress" when progress drops below
+      // 100% on a task that was marked Complete — sync that back into local
+      // state so the badge/filter don't keep showing "Complete" once the
+      // progress bar no longer agrees.
+      const newStatus = result?.status || taskStatus;
+      if (newStatus !== taskStatus) setTaskStatus(newStatus);
+      onProgressChange?.(task.id, value, newStatus !== taskStatus ? newStatus : undefined);
+    } catch (e) { alert(e.message); }
+  }
+
+  async function handleComplete() {
+    try {
+      await markTaskComplete(task.id);
+      setTaskStatus("Complete");
+      setProgress(100);
+      onProgressChange?.(task.id, 100, "Complete");
+    } catch (e) { alert(e.message); }
+  }
+
+  // Explicit "undo" for an accidental Mark Complete click — reverts status
+  // only, leaves whatever progress value is currently set untouched.
+  async function handleUndoComplete() {
+    try {
+      await undoTaskComplete(task.id);
+      setTaskStatus("In Progress");
+      onProgressChange?.(task.id, progress, "In Progress");
+    } catch (e) { alert(e.message); }
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col bg-white dark:bg-[#13151F]">
+      {/* ── Compact header (always visible) ─────────────────────── */}
+      <div className="flex shrink-0 items-center gap-2.5 border-b border-slate-100 px-3 py-2 dark:border-white/6">
+        {onBack && (
+          <button onClick={onBack} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-white/8 md:hidden">
+            <ChevronLeft size={18} />
+          </button>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className={`badge text-[10px] ${isComplete ? "badge-success" : "badge-accent"}`}>{taskStatus}</span>
+            {task.due_date && <span className="text-[10.5px] text-slate-400">Due {task.due_date}</span>}
+          </div>
+          <p className="truncate text-[13.5px] font-bold text-slate-900 dark:text-white leading-tight">{task.title || "Untitled Task"}</p>
+          <p className="truncate text-[11px] text-slate-400">{task.client_name || "—"} · {task.assignee?.name || "—"}</p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Info button — mobile: bottom sheet, desktop: toggles extra details */}
+          <button
+            onClick={() => {
+              if (window.innerWidth < 768) setInfoSheetOpen(true);
+              else setDetailsOpen((v) => !v);
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+              detailsOpen
+                ? "bg-accent/10 text-accent dark:bg-accent/20"
+                : "text-slate-400 hover:bg-slate-100 dark:hover:bg-white/8"
+            }`}
+            title="Phone / description / links"
+          >
+            <Info size={15} />
+          </button>
+
+          {!isComplete && (
+            <button onClick={handleComplete}
+              className="hidden items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-600 transition sm:flex">
+              <CheckCircle2 size={13} /> Mark Complete
+            </button>
+          )}
+          {isComplete && (
+            <button onClick={handleUndoComplete} title="Undo — reopen this task"
+              className="hidden items-center gap-1 rounded-xl bg-emerald-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-emerald-600 transition hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50 sm:flex">
+              <CheckCircle2 size={12} /> Completed · Undo
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Always-visible slim progress strip ──────────────────────
+           Click to expand the slider panel (desktop) or info sheet (mobile) */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => {
+          if (window.innerWidth < 768) setInfoSheetOpen(true);
+          else setDetailsOpen((v) => !v);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (window.innerWidth < 768 ? setInfoSheetOpen(true) : setDetailsOpen((v) => !v))}
+        className="flex shrink-0 cursor-pointer select-none items-center gap-2 border-b border-slate-100 px-3 py-1.5 transition hover:bg-slate-50/60 dark:border-white/6 dark:hover:bg-white/3"
+        title={detailsOpen ? "Collapse slider" : "Click to drag progress slider"}
+      >
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/8">
+          <div
+            className="h-1.5 rounded-full bg-accent transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <span className="w-8 shrink-0 text-right text-[11px] font-bold text-accent">{progress}%</span>
+        <ChevronUp
+          size={12}
+          className={`shrink-0 text-slate-300 transition-transform dark:text-slate-600 ${detailsOpen ? "" : "rotate-180"}`}
+        />
+      </div>
+
+      {/* ── Desktop collapsible details + progress slider ────────── */}
+      {detailsOpen && (
+        <div className="hidden shrink-0 border-b border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-white/6 dark:bg-[#1A1D27] md:block animate-fade-in">
+          {(task.client_phone || task.description || linkList.length > 0) && (
+            <div className="mb-3 space-y-1 text-[12px]">
+              {task.client_phone && <p><span className="text-slate-400 dark:text-slate-400">Phone:</span> <span className="text-slate-700 dark:text-white">{task.client_phone}</span></p>}
+              {task.description && <p><span className="text-slate-400 dark:text-slate-400">Description:</span> <span className="text-slate-700 dark:text-white">{task.description}</span></p>}
+              {linkList.map((l, i) => (
+                <a key={i} href={l.trim()} target="_blank" rel="noreferrer" className="mr-2 text-accent hover:underline">{l.trim()}</a>
+              ))}
+            </div>
+          )}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11.5px]">
+              <span className="font-semibold text-slate-500 dark:text-slate-300">Progress</span>
+              <span className="font-bold text-accent">{progress}%</span>
+            </div>
+            <input type="range" min={0} max={100} value={progress}
+              onChange={(e) => setProgress(Number(e.target.value))}
+              onMouseUp={(e) => handleProgressCommit(Number(e.target.value))}
+              onTouchEnd={(e) => handleProgressCommit(Number(e.target.value))}
+              className="w-full" style={{ accentColor: "#22D3D3" }}
+            />
+            <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-400">Drag to update — client gets a WhatsApp message automatically.</p>
+          </div>
+          {!isComplete && (
+            <button onClick={handleComplete}
+              className="mt-2 flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-600 transition sm:hidden">
+              <CheckCircle2 size={13} /> Mark Complete
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Chat thread ──────────────────────────────────────────── */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+        {messages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 opacity-50">
+            <MessageCircle size={28} className="text-slate-300 dark:text-slate-600" />
+            <p className="text-[12.5px] text-slate-400">No messages yet</p>
+          </div>
+        ) : (
+          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} />)
+        )}
+      </div>
+
+      {/* ── Mobile: Mark Complete / Undo Complete strip (below chat) ── */}
+      <div className="shrink-0 border-t border-slate-100 px-3 py-2 dark:border-white/6 sm:hidden">
+        {isComplete ? (
+          <button onClick={handleUndoComplete}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-50 py-2.5 text-[13px] font-bold text-emerald-600 hover:bg-emerald-100 transition dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50">
+            <CheckCircle2 size={15} /> Completed · Undo
+          </button>
+        ) : (
+          <button onClick={handleComplete}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-[13px] font-bold text-white hover:bg-emerald-600 transition">
+            <CheckCircle2 size={15} /> Mark Complete
+          </button>
+        )}
+      </div>
+
+      {/* ── Composer ─────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-3 dark:border-white/6 dark:bg-[#13151F]">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          <button onClick={() => setToStaff((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition ${
+              toStaff
+                ? "border-accent/40 bg-accent/10 text-accent-text dark:border-accent/30 dark:bg-accent/15 dark:text-accent"
+                : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:text-slate-400"
+            }`}>
+            {toStaff && <Check size={11} />}<Users size={12} />{staffToggleLabel}
+          </button>
+          <button onClick={() => setToClient((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition ${
+              toClient
+                ? "border-emerald-400/50 bg-emerald-50 text-emerald-700 dark:border-emerald-700/40 dark:bg-emerald-950/30 dark:text-emerald-400"
+                : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:text-slate-400"
+            }`}>
+            {toClient && <Check size={11} />}<MessageCircle size={12} />Client
+          </button>
+          <span className="ml-auto self-center text-[10.5px] text-slate-400">
+            {!toStaff && !toClient ? "Select target" : toStaff && toClient ? "Staff + Client" : toStaff ? "Staff only" : "Client only"}
+          </span>
+        </div>
+        <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+          <textarea value={text} onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder="Write a message…" rows={2}
+            className="flex-1 resize-none bg-transparent text-[13.5px] text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
+          />
+          <button onClick={handleSend} disabled={!canSend}
+            className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition hover:bg-accent-dark disabled:opacity-40">
+            <Send size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Mobile: Info bottom sheet ────────────────────────────── */}
+      {infoSheetOpen && (
+        <InfoSheet
+          task={{ ...task, status: taskStatus }}
+          progress={progress}
+          onProgressCommit={handleProgressCommit}
+          onComplete={() => { handleComplete(); setInfoSheetOpen(false); }}
+          onUndoComplete={() => { handleUndoComplete(); setInfoSheetOpen(false); }}
+          onClose={() => setInfoSheetOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
