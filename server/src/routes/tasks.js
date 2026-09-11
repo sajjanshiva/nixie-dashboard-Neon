@@ -156,7 +156,7 @@ router.put("/:id/assign", async (req, res) => {
 // (matches the old RLS rule: staff can update their own assigned task).
 // Replaces the direct-Supabase markTaskComplete().
 router.post("/:id/complete", async (req, res) => {
-  const { rows: existing } = await pool.query("select assignee_id from tasks where id = $1", [req.params.id]);
+  const { rows: existing } = await pool.query("select * from tasks where id = $1", [req.params.id]);
   const task = existing[0];
   if (!task) return res.status(404).json({ message: "Task not found" });
 
@@ -169,7 +169,39 @@ router.post("/:id/complete", async (req, res) => {
     "update tasks set status = 'Complete', progress = 100, completed_at = now(), updated_at = now() where id = $1 returning *",
     [req.params.id]
   );
-  res.json(rows[0]);
+  const updatedTask = rows[0];
+
+  // Log system message
+  const systemText = "Task marked Complete";
+  const { rows: sysRows } = await pool.query(
+    `insert into messages (task_id, kind, text) values ($1, 'system', $2) returning *`,
+    [req.params.id, systemText]
+  );
+
+  // Send WhatsApp completion message to client if phone is present
+  const clientText = `🎉 Great news — your order '${task.title}' is complete!`;
+  let clientMsgRow = null;
+  if (task.client_phone) {
+    try {
+      const sendResult = await sendWhatsAppMessage(task.client_phone, clientText);
+      const { rows: cRows } = await pool.query(
+        `insert into messages (task_id, kind, author_id, author_name, author_role, is_client, whatsapp_message_id, text)
+         values ($1, 'client', $2, $3, $4, false, $5, $6) returning *`,
+        [req.params.id, req.user.id, req.user.name, req.user.role, sendResult?.messageId || null, clientText]
+      );
+      clientMsgRow = cRows[0];
+    } catch (e) {
+      console.error("WhatsApp completion update failed:", e.message);
+    }
+  }
+
+  // Broadcast messages via WebSocket if active
+  const newMsgs = [sysRows[0], clientMsgRow].filter(Boolean);
+  if (newMsgs.length > 0) {
+    broadcastNewMessages(req.params.id, newMsgs);
+  }
+
+  res.json(updatedTask);
 });
 
 // POST /api/tasks/progress

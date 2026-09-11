@@ -1,77 +1,57 @@
-# Teamflow — Client (Stage 1)
+# Nixie Dashboard — Frontend Client
 
-This is the **frontend only**. It's built against Supabase directly for
-almost everything, and against a backend server (stage 2, not in this
-zip yet) for the few actions that need secret keys:
+The frontend client for **Nixie Dashboard**, built with **React 19**, **Vite**, and **Tailwind CSS**.
 
-- Sending a message with "Message client" on → real WhatsApp send
-- Progress slider updates → also triggers the client WhatsApp update
-- Attendance check-in → GPS/Haversine geofence validation
-- Adding a team member with a password → uses the Supabase service-role key
-- Receipt image upload → ImageKit signature generation
+---
 
-Until that backend exists, those specific actions will fail with a
-network error — everything else (viewing tasks, Shopify inbox, approvals
-list, leave/reimbursement history, performance) works against Supabase
-right now.
+## 🚀 Features
 
-## 1. Install
+- **Dashboard & Task Pipeline:** Real-time visibility into active stitching, alteration, and client tasks with progress updates.
+- **Shopify Inbox:** Unified tabbed interface for incoming paid Shopify orders and AI Outfit Analyzer draft leads with dedicated staff assignment controls.
+- **Task Conversations & WhatsApp:** Task-level internal chat and client messaging with direct WhatsApp dispatch.
+- **Attendance Clock-In:** Geofenced GPS attendance verification with on-time / late calculation.
+- **Approvals:** Leave requests and expense reimbursements with receipt previews.
+- **Team Management:** Admin controls for inviting staff, sending welcome emails, and role management.
+- **Web Push Notifications:** Real-time desktop and mobile push alerts via Service Worker and VAPID.
+
+---
+
+## 🛠️ Setup & Installation
+
+### 1. Install Dependencies
 
 ```bash
 cd client
 npm install
 ```
 
-## 2. Set up Supabase
+### 2. Configure Environment
 
-1. Go to https://supabase.com → create a free project.
-2. In the Supabase dashboard, open **SQL Editor** → paste the full
-   contents of `supabase/schema.sql` from this folder → run it. This
-   creates all tables and Row Level Security policies.
-3. Go to **Project Settings → API** and copy:
-   - **Project URL** → `VITE_SUPABASE_URL`
-   - **anon public key** → `VITE_SUPABASE_ANON_KEY`
-4. Create your first Admin user manually for now (until the backend's
-   admin-seed script exists): **Authentication → Users → Add user** in
-   the Supabase dashboard, then in **SQL Editor** run:
-   ```sql
-   insert into profiles (id, name, email, role)
-   values ('<paste the new user's UUID from Authentication>', 'Your Name', 'you@example.com', 'admin');
-   ```
-
-## 3. Set up ImageKit (for receipt uploads)
-
-1. Sign up at https://imagekit.io → create a project.
-2. Go to **Developer options** and copy:
-   - **URL-endpoint** → `VITE_IMAGEKIT_URL_ENDPOINT`
-   - **Public key** → `VITE_IMAGEKIT_PUBLIC_KEY`
-   - (Keep the **Private key** for stage 2's backend — never put it here.)
-
-## 4. Configure environment
+Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
 ```
-Fill in the four values above. Leave `VITE_API_BASE_URL` as
-`http://localhost:5000` — that's where stage 2's backend will run.
 
-## 5. Run it
+Configure the following variables in `client/.env`:
+
+| Key | Description | Managed By |
+|---|---|---|
+| `VITE_API_BASE_URL` | Base URL of the running Nixie backend (e.g. `http://localhost:5001` or deployed URL) | `[SET BY DEVELOPER]` |
+| `VITE_IMAGEKIT_URL_ENDPOINT` | ImageKit URL Endpoint for rendering and uploading images | `[ASK NIXIE TEAM]` |
+| `VITE_IMAGEKIT_PUBLIC_KEY` | ImageKit Public Key | `[ASK NIXIE TEAM]` |
+| `VITE_VAPID_PUBLIC_KEY` | Public VAPID key for browser web push subscriptions | `[SET BY DEVELOPER]` |
+
+### 3. Run Development Server
 
 ```bash
 npm run dev
 ```
-Opens at http://localhost:5173. Log in with the admin account you
-created in step 2.4.
 
-## Theming
+The application will be accessible at `http://localhost:5173`.
 
-Open `tailwind.config.js` — the `colors.accent` block (3 hex codes)
-controls the entire app's color. A few ready-made presets are listed as
-comments right above it (blue, black/monochrome, navy, green) — copy one
-in, save, and the whole dashboard re-themes.
+---
 
-## What's next (stage 2)
+## 🎨 Theming
 
-The Express backend — Shopify webhook receiver, WhatsApp send, GPS
-check-in validation, ImageKit signature endpoint, and the admin-seed
-script — comes as a separate `server` folder and zip.
+All theme colors are configured in `client/tailwind.config.js` via the `colors.accent` property. Pre-configured palettes (e.g., custom neon/blue, dark, emerald) can be switched directly there.

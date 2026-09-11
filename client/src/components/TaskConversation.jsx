@@ -367,6 +367,9 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
       setTaskStatus("Complete");
       setProgress(100);
       onProgressChange?.(task.id, 100, "Complete");
+      getMessages(task.id).then((data) => {
+        if (Array.isArray(data)) setMessages(data);
+      }).catch(() => {});
     } catch (e) { alert(e.message); }
   }
 
