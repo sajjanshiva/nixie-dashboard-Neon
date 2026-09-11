@@ -471,6 +471,19 @@ export async function acceptInvite({ token, name, password }) {
   return apiPost("/api/auth/accept-invite", { token, name, password });
 }
 
+// ── Forgot / reset password (public — no auth token) ──
+export async function forgotPassword(email) {
+  return apiPost("/api/auth/forgot-password", { email });
+}
+
+export async function getResetPasswordInfo(token) {
+  return apiGet(`/api/auth/reset-password/${token}`);
+}
+
+export async function resetPassword({ token, password }) {
+  return apiPost("/api/auth/reset-password", { token, password });
+}
+
 // ---------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------

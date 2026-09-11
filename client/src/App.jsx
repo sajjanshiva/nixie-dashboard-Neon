@@ -10,6 +10,8 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 import Login from "./pages/Login.jsx";
 import AcceptInvite from "./pages/AcceptInvite.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx";
+import ResetPassword from "./pages/ResetPassword.jsx";
 import AllTasks from "./pages/admin/AllTasks.jsx";
 import ShopifyInbox from "./pages/admin/ShopifyInbox.jsx";
 import Approvals from "./pages/admin/Approvals.jsx";
@@ -63,6 +65,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/accept-invite/:token" element={<AcceptInvite />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
 
         <Route path="/admin/all-tasks" element={<ProtectedRoute role="admin"><AdminShell title="All Tasks"><AllTasks /></AdminShell></ProtectedRoute>} />
         <Route path="/admin/shopify-inbox" element={<ProtectedRoute role="admin"><AdminShell title="Shopify Inbox"><ShopifyInbox /></AdminShell></ProtectedRoute>} />

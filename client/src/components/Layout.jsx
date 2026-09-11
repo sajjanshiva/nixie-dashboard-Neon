@@ -2,22 +2,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { LogOut, Sun, Moon, X, User } from "lucide-react";
 import Avatar from "./Avatar.jsx";
+import NixieLogo from "./NixieLogo.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import { useAuth } from "../lib/AuthContext.jsx";
 import { useTheme } from "../lib/ThemeContext.jsx";
-
-function NixieLogo({ size = 28 }) {
-  return (
-    <div
-      style={{ width: size, height: size }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-accent shadow-sm"
-    >
-      <span style={{ fontSize: size * 0.42, lineHeight: 1 }} className="font-bold tracking-tight text-white select-none">
-        N
-      </span>
-    </div>
-  );
-}
 
 function ThemeToggle({ className = "" }) {
   const { dark, toggle } = useTheme();
