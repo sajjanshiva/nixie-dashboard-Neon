@@ -29,15 +29,23 @@ The stack consists of a modern React client (`client`) and a high-performance Ex
   - Role-based access control (`admin` and `staff`).
   - Invite flow with email invitations sent via **Brevo** transactional emails.
   - Secure authentication using JWT and `bcrypt` password hashing.
-- **GPS-Based Attendance:**
-  - Geofence verification (Haversine formula) for staff clock-in/clock-out against the physical office latitude/longitude.
-  - Configurable office coordinates, allowed radius (meters), and shift start time (with UI overrides).
+- **GPS-Based Attendance & Race Condition Safety:**
+  - Geofence verification (Haversine formula) for staff clock-in/clock-out against configurable office coordinates.
+  - Database-enforced single-active-session concurrency protection (partial unique index in PostgreSQL) preventing check-in race conditions.
+  - Automatic stale session cleanup on staff or admin access, shift start locking, and 10-minute on-time grace period.
 - **Approvals & Financial Records:**
   - Paginated leave requests and expense/reimbursement claim workflows with admin approvals and real-time counter synchronization.
   - Image attachments powered by **ImageKit** with secure server-side upload authentication.
-- **Notifications & Web Push:**
-  - Desktop and mobile browser push notifications powered by VAPID / Service Workers for new orders, leads, and task assignments.
-  - Notification bell with efficient 20-second polling (paused when tab is hidden) and dedicated `/notifications` paginated history page.
+- **National Holidays & Calendar Management:**
+  - Dynamic India national holidays integration powered by the **Calendarific API** for any year, with fallback safeguards and warning alerts.
+  - Support for custom office holidays and automatic check-in blocking on designated holiday dates.
+- **Staff Performance & Overtime Analytics:**
+  - Comprehensive staff scoring based on punctuality rates, on-time task completions, and weekly overtime tracking.
+  - Scoped date-range queries, historical trends, and summary reports for administrators.
+- **Self-Healing Web Push & Notifications:**
+  - Desktop and mobile browser push notifications powered by VAPID and Service Workers for new orders, leads, and task assignments.
+  - **Zero-Friction "Click-Once" Engine:** Automatically self-heals and re-synchronizes browser push subscriptions with Neon on every app load without recurring button clicks.
+  - Notification bell with efficient 20-second visibility-aware polling and dedicated `/notifications` paginated history page.
 
 ---
 

@@ -1,6 +1,6 @@
 # Nixie Dashboard — Express Server
 
-Backend API service for **Nixie Dashboard**, providing database management via **Neon PostgreSQL**, native WebSocket real-time chat server (`/ws/task-chat`), Shopify webhook receivers, WhatsApp Cloud API integration with multi-order chat mirroring, Brevo email invites, GPS attendance verification, and Web Push notifications.
+Backend API service for **Nixie Dashboard**, providing database management via **Neon PostgreSQL**, native WebSocket real-time chat server (`/ws/task-chat`), Shopify webhook receivers, WhatsApp Cloud API integration with multi-order chat mirroring, Brevo email invites, GPS attendance verification with race condition safety, live holiday calendar sync (Calendarific), staff performance scoring, and Web Push notifications.
 
 ---
 
@@ -40,9 +40,12 @@ cp .env.example .env
    - `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`.
 7. **ImageKit:**
    - `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_URL_ENDPOINT`.
-8. **Web Push & Geofencing:**
+8. **Web Push (VAPID):**
    - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`: Web Push credentials (`npx web-push generate-vapid-keys`).
-   - `OFFICE_LAT`, `OFFICE_LNG`, `OFFICE_RADIUS_METERS`, `OFFICE_START_TIME`: Office GPS bounds for attendance clock-in.
+9. **National Holidays API:**
+   - `CALENDARIFIC_API_KEY`: API key from [Calendarific](https://calendarific.com) used for live Indian national holidays sync.
+10. **Office Attendance & Settings:**
+    - Stored and managed dynamically via the `settings` database table. Safe defaults are provided with strict validation (no fallback to dummy coordinates). Attendance check-in features PostgreSQL partial-index concurrency protection against duplicate check-in races.
 
 ---
 

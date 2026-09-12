@@ -12,10 +12,13 @@ The frontend client for **Nixie Dashboard**, built with **React 19**, **Vite**, 
   - Real-time bidirectional chat powered by WebSockets (`/ws/task-chat`) with automatic reconnect, ping keep-alives, and fallback to polling.
   - Multi-order chat mirroring with a contextual top banner displaying sibling active orders and their assigned staff.
   - Chat history "load earlier" pagination preserving scroll position.
-- **Attendance Clock-In:** Geofenced GPS attendance verification with on-time / late calculation.
+- **Attendance Clock-In:** Geofenced GPS attendance verification with on-time/late calculations, office-hour locks, and race condition resilience.
+- **Performance Analytics:** Visual staff scorecards, monthly punctuality rate trends, overtime hours, and comprehensive admin summary tables.
+- **Holidays Management:** Interactive calendar to view, add, or remove holidays; one-click India national holiday sync powered by Calendarific with automatic fallback notifications.
+- **Admin Settings:** Real-time configuration of office hours and GPS coordinates (with "Use my current location" browser helper).
 - **Approvals:** Paginated leave requests and expense reimbursements with receipt previews and live badge counts.
 - **Team Management:** Admin controls for inviting staff, sending welcome emails, and role management.
-- **Notifications & Web Push:** Real-time push alerts via Service Worker/VAPID, top notification bell with 20s visibility-aware polling, and full paginated `/notifications` history page.
+- **Self-Healing Web Push Notifications:** Browser push alerts via Service Worker/VAPID with automatic, silent resync on app load ("click once and stay subscribed forever"), top notification bell with 20s visibility-aware polling, and full paginated `/notifications` history page.
 
 ---
 
