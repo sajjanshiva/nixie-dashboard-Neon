@@ -6,10 +6,13 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data.json();
   } catch (e) {
-    data = { title: "Nixie Teamflow", body: event.data ? event.data.text() : "" };
+    // Only hit if the payload isn't valid JSON at all — the normal path
+    // (see server/src/lib/webpush.js) always sends { title, body, link }
+    // as real JSON with title already set to "Nixie Dashboard".
+    data = { title: "Nixie Dashboard", body: event.data ? event.data.text() : "" };
   }
 
-  const title = data.title || "Nixie Teamflow";
+  const title = data.title || "Nixie Dashboard";
   const options = {
     body: data.body || "",
     icon: "/favicon.ico",

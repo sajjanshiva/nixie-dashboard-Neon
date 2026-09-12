@@ -3,7 +3,7 @@ import { Bell as BellIcon, BellPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext.jsx";
 import { getNotifications, markAllNotificationsRead } from "../lib/api.js";
-import { enablePush, getPushPermission, isPushSupported } from "../lib/push.js";
+import { enablePush, ensurePushSubscribed, getPushPermission, isPushSupported } from "../lib/push.js";
 import toast from "react-hot-toast";
 
 const POLL_INTERVAL_MS = 20 * 1000;
@@ -64,30 +64,38 @@ export default function NotificationBell() {
     };
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Push permission state (shows the "Enable notifications" row
-  //    when the browser supports it and either hasn't been asked yet
-  //    ("default"), OR permission is already granted but this device
-  //    hasn't actually completed a real subscribe on THIS backend yet
-  //    ("granted" + no local confirmation flag). Browser permission and
-  //    "actually subscribed to push_subscriptions" are two different
-  //    things — permission can be granted from a much earlier session
-  //    (even against a previous backend) while no subscription exists
-  //    here at all, which is exactly the bug this fixes. ──
-  const PUSH_CONFIRMED_KEY = "nixie_dashboard_push_confirmed";
+  // ── Push permission state ──
+  // The "Enable notifications" row now shows ONLY for the two cases
+  // that genuinely need it: permission never asked yet ("default"), or
+  // explicitly blocked ("denied" — shown as a different message below,
+  // since we can't re-request that ourselves). Once permission is
+  // "granted", the row disappears — there is no longer a separate
+  // "confirmed on this device" flag to track (see push.js's
+  // ensurePushSubscribed for why: it silently re-confirms with the
+  // server on its own, every app load, so nothing here needs to trust a
+  // stored flag to know that already happened).
   useEffect(() => {
     if (isPushSupported()) setPushPermission(getPushPermission());
   }, [open]);
 
-  const pushConfirmedOnThisDevice = localStorage.getItem(PUSH_CONFIRMED_KEY) === "true";
-  const showEnableRow =
-    pushPermission === "default" || (pushPermission === "granted" && !pushConfirmedOnThisDevice);
+  // Silent self-heal — once per app load, for an already-logged-in user
+  // whose browser permission is already granted. No button, no toast on
+  // success, nothing visible — this is what makes notifications keep
+  // working forever after the one real click, even if a subscription
+  // quietly goes bad later (browser-side reset, or the server cleaning
+  // up a dead subscription after a failed push).
+  useEffect(() => {
+    if (!user) return;
+    ensurePushSubscribed();
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showEnableRow = pushPermission === "default";
 
   async function handleEnablePush() {
     setEnabling(true);
     try {
       await enablePush();
       setPushPermission("granted");
-      localStorage.setItem(PUSH_CONFIRMED_KEY, "true");
       toast.success("Notifications enabled on this device");
     } catch (err) {
       setPushPermission(getPushPermission());
@@ -176,8 +184,10 @@ export default function NotificationBell() {
             )}
           </div>
 
-          {/* Enable push row — shown if supported and not yet confirmed
-              subscribed on this device (see showEnableRow above) */}
+          {/* Enable push row — only for "never asked yet" now; a
+              "granted" permission never shows this row, since there's
+              nothing left to confirm — the silent resync above already
+              handles staying subscribed. */}
           {showEnableRow && (
             <button
               onClick={handleEnablePush}
