@@ -36,7 +36,14 @@ export function subscribeToTaskChat(taskId, token, onMessage) {
         });
         if (!res.ok) return;
         const data = await res.json();
-        (Array.isArray(data) ? data : []).forEach((m) => {
+        // FIX: GET /api/messages/:taskId now returns { messages, hasMore,
+        // siblingActiveTasks } (added when chat pagination/"load earlier"
+        // was introduced) instead of a plain array. This fallback poller
+        // still expected a plain array, so Array.isArray(data) was always
+        // false and nothing was ever delivered while degraded to polling
+        // (silent — no error, just zero messages every 5s). Reading
+        // data.messages fixes it.
+        (data?.messages || []).forEach((m) => {
           if (seenIds.has(m.id)) return;
           seenIds.add(m.id);
           onMessage(m);
@@ -67,12 +74,12 @@ export function subscribeToTaskChat(taskId, token, onMessage) {
             seenIds.add(m.id); // in case we later degrade to polling
             onMessage(m);
           });
-        } else if (data.type === "ambiguous_resolved") {
-          // Different shape from a normal message — passed through as-is
-          // so the caller (TaskConversation.jsx) can distinguish it via
-          // its own `type` field, same pattern used for new messages.
-          onMessage(data);
         }
+        // NOTE: the old "ambiguous_resolved" message type has been
+        // removed — the ambiguous-WhatsApp-reply/claiming system it
+        // belonged to no longer exists (see webhooksWhatsapp.js /
+        // messages.js), replaced by mirroring a message into every
+        // active task a client has instead of guessing/locking one.
       } catch {
         // ignore malformed frames
       }

@@ -5,6 +5,22 @@ import { broadcastNewMessages } from "../lib/ws.js";
 
 const router = Router();
 
+// Same normalization webhooksWhatsapp.js already uses for incoming
+// messages — strips everything but digits and compares the last 10, so
+// "+91 8867685299", "08867685299", and "8867685299" are all treated as
+// the same number. FIX: the two sibling-lookup queries below used to do
+// a plain exact-string match instead, which silently failed to find a
+// sibling task whenever the same client's phone number was saved in a
+// slightly different format on each task (e.g. one entered manually
+// with a +91 prefix, one auto-filled from a Shopify order without it).
+function digitsOnly(phone = "") {
+  return phone.replace(/\D/g, "");
+}
+function phonesMatch(a, b) {
+  if (!a || !b) return false;
+  return digitsOnly(a).slice(-10) === digitsOnly(b).slice(-10);
+}
+
 // GET /api/messages/:taskId?limit=40
 // GET /api/messages/:taskId?before=<messageId>&limit=24
 //
@@ -14,12 +30,11 @@ const router = Router();
 // returns the `limit` messages (default 24) immediately preceding it —
 // used for "load earlier" when the staff member scrolls up.
 //
-// Also returns `siblingActiveTasks` — every OTHER active task that
-// shares this task's client_phone, if any. This is the group-chat
-// banner data: when a client has more than one active order, every
-// task's chat surfaces a one-time notice ("this client also has N other
-// active order(s)") instead of the old per-message "ambiguous reply"
-// claiming system, which has been removed entirely.
+// Also returns `siblingActiveTasks` — every OTHER active task that's
+// really the same client (same phone number, normalized), each with its
+// assignee's name — this is the group-chat banner data ("this client
+// also has N other active orders: X (handled by Y), Z (handled by W)").
+// Only computed on the initial load (no `before`).
 router.get("/:taskId", async (req, res) => {
   const { taskId } = req.params;
   const { rows: taskRows } = await pool.query("select assignee_id, client_phone from tasks where id = $1", [taskId]);
@@ -60,17 +75,18 @@ router.get("/:taskId", async (req, res) => {
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit).reverse(); // oldest-first, ready to render
 
-  // Sibling active tasks — only computed on the initial load (no
-  // `before`), since the banner is shown once and doesn't need to be
-  // recomputed every time older messages are paged in.
   let siblingActiveTasks = [];
   if (!before && task.client_phone) {
-    const { rows: siblings } = await pool.query(
-      `select id, title from tasks
-        where client_phone = $1 and id != $2 and status != 'Complete'`,
-      [task.client_phone, taskId]
+    const { rows: candidates } = await pool.query(
+      `select t.id, t.title, t.client_phone, p.name as assignee_name
+         from tasks t
+         left join profiles p on p.id = t.assignee_id
+        where t.client_phone is not null and t.id != $1 and t.status != 'Complete'`,
+      [taskId]
     );
-    siblingActiveTasks = siblings;
+    siblingActiveTasks = candidates
+      .filter((c) => phonesMatch(c.client_phone, task.client_phone))
+      .map(({ client_phone, ...c }) => c); // drop the raw phone before sending to the client, not needed there
   }
 
   res.json({ messages: page, hasMore, siblingActiveTasks });
@@ -78,10 +94,16 @@ router.get("/:taskId", async (req, res) => {
 
 // POST /api/messages/send
 // Body: { taskId, text, toStaff, toClient }
-// The old "ambiguous reply claiming" logic (atomic claim + race-check
-// before a client-directed reply) has been removed entirely — replaced
-// by the group-chat mirroring in webhooksWhatsapp.js. Any assignee (or
-// admin) can reply from any task's chat, anytime, without being blocked.
+//
+// Group-chat mirroring: after saving to the task you're actually typing
+// in, the same message(s) are also copied into every OTHER currently
+// active task that's really the same client (same phone number,
+// normalized) — so a note dropped in Staff1's chat is immediately
+// visible in Staff2's and Staff3's chats too, same for a client-facing
+// reply. The real WhatsApp send (for a Client-tagged message) still only
+// ever fires ONCE, against the task actually being sent from — mirroring
+// only duplicates the chat LOG entry into sibling tasks, never sends a
+// second WhatsApp message to the client.
 router.post("/send", async (req, res) => {
   const { taskId, text, toStaff, toClient } = req.body;
   if (!taskId || !text?.trim() || (!toStaff && !toClient)) {
@@ -124,9 +146,35 @@ router.post("/send", async (req, res) => {
     inserted.push(rows[0]);
   }
 
-  // Push the new message(s) instantly to anyone else with this task's
+  // Push the new message(s) instantly to anyone else with THIS task's
   // chat open right now.
   broadcastNewMessages(taskId, inserted);
+
+  // Mirror the same message(s) into every OTHER currently active task
+  // that's really the same client (normalized phone match — see
+  // phonesMatch above) — same content, same sender, just a separate row
+  // per sibling task (no re-send to WhatsApp; that already happened
+  // once, above, if this was a Client-tagged message).
+  if (task.client_phone && inserted.length > 0) {
+    const { rows: candidates } = await pool.query(
+      `select id, client_phone from tasks where client_phone is not null and id != $1 and status != 'Complete'`,
+      [taskId]
+    );
+    const siblings = candidates.filter((c) => phonesMatch(c.client_phone, task.client_phone));
+
+    for (const sib of siblings) {
+      const mirrored = [];
+      for (const m of inserted) {
+        const { rows } = await pool.query(
+          `insert into messages (task_id, kind, author_id, author_name, author_role, is_client, whatsapp_message_id, text)
+           values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`,
+          [sib.id, m.kind, m.author_id, m.author_name, m.author_role, m.is_client, m.whatsapp_message_id, m.text]
+        );
+        mirrored.push(rows[0]);
+      }
+      broadcastNewMessages(sib.id, mirrored);
+    }
+  }
 
   res.json({ ok: true, messages: inserted });
 });

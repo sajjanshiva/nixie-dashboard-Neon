@@ -59,10 +59,12 @@ function Bubble({ msg, onRetry }) {
             ? "border border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30"
             : isAdmin
             ? "bg-accent/10 dark:bg-accent/15"
-            : "bg-indigo-50 dark:bg-indigo-500/10"
+            // Bumped from indigo-50/10 (very light) to indigo-100/20 —
+            // medium saturation, not pastel-light, not overly bright.
+            : "bg-indigo-100 dark:bg-indigo-500/20"
         }`}>
           <p className={`mb-1 text-[11px] font-semibold ${
-            isAdmin ? "text-accent-text dark:text-accent" : "text-indigo-500 dark:text-indigo-300"
+            isAdmin ? "text-accent-text dark:text-accent" : "text-indigo-600 dark:text-indigo-300"
           }`}>
             {authorName} · {isAdmin ? "Admin" : "Staff"}
           </p>
@@ -114,21 +116,23 @@ function Bubble({ msg, onRetry }) {
 }
 
 // ── Group-chat banner — shown once at the top of the thread when this
-//    client has other active orders. Replaces the old per-message
-//    "ambiguous reply / already replied elsewhere" claiming system:
-//    nothing is locked or guessed anymore, everyone assigned to any of
-//    this client's active orders (plus admin) effectively shares one
-//    conversation, and this banner is just the heads-up that it's
-//    happening. ─────────────────────────────────────────────────────
+//    client has other active orders. Names each sibling order's handler
+//    explicitly, so whoever's reading it immediately knows who else is
+//    involved without having to go check elsewhere. ─────────────────
 function MultiOrderBanner({ siblingTasks }) {
   if (!siblingTasks || siblingTasks.length === 0) return null;
-  const names = siblingTasks.map((t) => t.title || "Untitled").join(", ");
+  const parts = siblingTasks.map((t) => {
+    const title = t.title || "Untitled";
+    const handler = t.assignee_name ? `handled by ${t.assignee_name}` : "unassigned";
+    return `${title} (${handler})`;
+  });
+  const list = parts.join(", ");
   return (
     <div className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-[12px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
       <AlertCircle size={14} className="mt-0.5 shrink-0" />
       <span>
-        This client also has {siblingTasks.length} other active order{siblingTasks.length > 1 ? "s" : ""}: {names}.
-        Messages here may relate to any of them — everyone assigned can see and reply.
+        This client also has {siblingTasks.length} other active order{siblingTasks.length > 1 ? "s" : ""}: {list}.
+        Everyone assigned can see and reply to client.
       </span>
     </div>
   );
@@ -314,8 +318,8 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   // message goes through the exact same path rather than a separate,
   // easier-to-diverge code path. replaceTemps, when given, are the
   // specific failed bubbles being retried — removed once the retry
-  // attempt resolves either way. No more "lost the race" handling here —
-  // sending is never blocked now that claiming has been removed.
+  // attempt resolves either way. Sending is never blocked — there's no
+  // claiming/locking system anymore.
   async function attemptSend(msgText, wantStaff, wantClient, replaceTemps = null) {
     const now = new Date().toISOString();
     const temps = [];

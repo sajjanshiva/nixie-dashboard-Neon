@@ -93,11 +93,12 @@ async function authToken() {
 // Tasks
 // ---------------------------------------------------------------------
 
-export async function getTasks({ assigneeId, status, page, pageSize } = {}) {
+export async function getTasks({ assigneeId, status, unassigned, page, pageSize } = {}) {
   const token = await authToken();
   const params = new URLSearchParams();
   if (assigneeId) params.set("assigneeId", assigneeId);
   if (status) params.set("status", status);
+  if (unassigned) params.set("unassigned", "true");
   if (page) params.set("page", page);
   if (pageSize) params.set("pageSize", pageSize);
   const qs = params.toString() ? `?${params.toString()}` : "";

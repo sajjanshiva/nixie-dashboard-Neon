@@ -7,12 +7,15 @@ The frontend client for **Nixie Dashboard**, built with **React 19**, **Vite**, 
 ## 🚀 Features
 
 - **Dashboard & Task Pipeline:** Real-time visibility into active stitching, alteration, and client tasks with progress updates.
-- **Shopify Inbox:** Unified tabbed interface for incoming paid Shopify orders and AI Outfit Analyzer draft leads with dedicated staff assignment controls.
-- **Task Conversations & WhatsApp:** Task-level internal chat and client messaging with direct WhatsApp dispatch.
+- **Shopify Inbox:** Unified tabbed interface for incoming paid Shopify orders and AI Outfit Analyzer draft leads with dedicated staff assignment controls and independent pagination.
+- **Task Conversations & Multi-Order Group-Chat:**
+  - Real-time bidirectional chat powered by WebSockets (`/ws/task-chat`) with automatic reconnect, ping keep-alives, and fallback to polling.
+  - Multi-order chat mirroring with a contextual top banner displaying sibling active orders and their assigned staff.
+  - Chat history "load earlier" pagination preserving scroll position.
 - **Attendance Clock-In:** Geofenced GPS attendance verification with on-time / late calculation.
-- **Approvals:** Leave requests and expense reimbursements with receipt previews.
+- **Approvals:** Paginated leave requests and expense reimbursements with receipt previews and live badge counts.
 - **Team Management:** Admin controls for inviting staff, sending welcome emails, and role management.
-- **Web Push Notifications:** Real-time desktop and mobile push alerts via Service Worker and VAPID.
+- **Notifications & Web Push:** Real-time push alerts via Service Worker/VAPID, top notification bell with 20s visibility-aware polling, and full paginated `/notifications` history page.
 
 ---
 

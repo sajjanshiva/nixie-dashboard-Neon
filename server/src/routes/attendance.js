@@ -103,6 +103,20 @@ router.post("/check-in", async (req, res) => {
 
   if (workMode === "office") {
     const officeLocation = await getSetting("office_location");
+    // FIX #5: previously, a missing office_location setting would fall
+    // back to a fabricated { lat: 0, lng: 0 } — a real spot on the map
+    // (off the coast of Africa), which would make EVERY office
+    // check-in fail with a confusing "you're thousands of km away"
+    // error, and that bad value would get permanently written back to
+    // the database by getSetting's auto-heal, not just used in memory.
+    // Now: a genuinely unconfigured office location is caught here
+    // explicitly, with a clear, actionable message instead of running
+    // distance math against a guess.
+    if (!officeLocation || officeLocation.lat == null || officeLocation.lng == null) {
+      return res.status(400).json({
+        message: "Office location hasn't been set up yet — ask your admin to configure it in Settings.",
+      });
+    }
     const distance = haversineMeters(lat, lng, officeLocation.lat, officeLocation.lng);
     if (distance > officeLocation.radius_meters) {
       return res.status(403).json({
@@ -121,11 +135,32 @@ router.post("/check-in", async (req, res) => {
   const onTimeCutoff = new Date(officeStartToday.getTime() + ON_TIME_GRACE_MINUTES * 60000);
   const status = isFirstSessionToday ? (now <= onTimeCutoff ? "on_time" : "late") : null;
 
-  const { rows } = await pool.query(
-    `insert into attendance (staff_id, date, check_in, work_mode, status)
-     values ($1, $2, $3, $4, $5) returning *`,
-    [req.user.id, today, now.toISOString(), workMode, status]
-  );
+  // FIX #1: the read-then-write gap above (check for an open session,
+  // then insert a new one) is a real race — two near-simultaneous
+  // requests (a double-click, a retried request on a flaky network)
+  // could both pass the check above before either one's insert lands.
+  // A partial unique index in the database (see the accompanying SQL
+  // migration: only one row per staff_id may have check_out IS NULL at
+  // a time) makes this impossible at the data layer, not just here in
+  // application code — so this insert is wrapped to catch that specific
+  // failure and turn it into the same friendly message as the normal
+  // check above, instead of it surfacing as a raw 500 error.
+  let inserted;
+  try {
+    const { rows } = await pool.query(
+      `insert into attendance (staff_id, date, check_in, work_mode, status)
+       values ($1, $2, $3, $4, $5) returning *`,
+      [req.user.id, today, now.toISOString(), workMode, status]
+    );
+    inserted = rows[0];
+  } catch (err) {
+    if (err.code === "23505") {
+      // Lost the race — someone else's (or this same person's retried)
+      // check-in request landed a moment earlier.
+      return res.status(400).json({ message: "You're already checked in — check out first." });
+    }
+    throw err;
+  }
 
   // As decided during migration planning: activated_at marks this
   // person's FIRST EVER check-in, not their invite/password-set time —
@@ -135,7 +170,7 @@ router.post("/check-in", async (req, res) => {
     [now.toISOString(), req.user.id]
   );
 
-  res.json(rows[0]);
+  res.json(inserted);
 });
 
 router.post("/check-out", async (req, res) => {

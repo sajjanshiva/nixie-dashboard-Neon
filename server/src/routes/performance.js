@@ -6,6 +6,12 @@ import { closeStaleSessions } from "./attendance.js";
 const router = Router();
 const WEIGHTS = { punctuality: 0.4, taskOnTime: 0.6 };
 
+// FIX #7: was 1000 (~2.7 years) — silently truncated the calendar with
+// no warning if ever exceeded. Raised generously so it's realistically
+// never hit by a normal report, and the routes below now return an
+// explicit error instead of quietly returning incomplete data if it is.
+const MAX_RANGE_DAYS = 3660; // ~10 years
+
 function parseYMD(dateStr) {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
@@ -21,11 +27,15 @@ function addDays(dateStr, n) {
   return toDateStr(d);
 }
 
+function daysBetween(fromStr, toStr) {
+  return Math.round((parseYMD(toStr) - parseYMD(fromStr)) / 86400000);
+}
+
 function eachDate(fromStr, toStr) {
   const dates = [];
   let cur = fromStr;
   let safety = 0;
-  while (cur <= toStr && safety < 1000) {
+  while (cur <= toStr && safety < MAX_RANGE_DAYS + 5) {
     dates.push(cur);
     cur = addDays(cur, 1);
     safety++;
@@ -84,7 +94,25 @@ async function computePerformance(staffId, from, to) {
     safeQuery("select * from attendance where staff_id = $1 and date >= $2 and date <= $3 order by check_in asc", [staffId, from, to]),
     safeQuery("select date, name from holidays where date >= $1 and date <= $2", [from, to]),
     safeQuery("select date_from, date_to, status from leaves where staff_id = $1 and status = 'approved'", [staffId]),
-    safeQuery("select * from tasks where assignee_id = $1", [staffId]),
+    // FIX #3: previously `select * from tasks where assignee_id = $1`
+    // with no date bound at all — pulled a staff member's ENTIRE task
+    // history, every single time, for a report that's supposed to be
+    // scoped to one period. The admin summary view made this worse,
+    // running this unbounded query once per staff member, in parallel,
+    // on every load. Now scoped to tasks that actually belong to this
+    // period: due in range, OR completed in range, OR (for a task with
+    // neither due date nor completion yet) created in range — every
+    // branch is date-bounded, so nothing unbounded can slip through.
+    safeQuery(
+      `select * from tasks
+        where assignee_id = $1
+          and (
+            (due_date is not null and due_date >= $2 and due_date <= $3)
+            or (completed_at is not null and completed_at::date >= $2 and completed_at::date <= $3)
+            or (due_date is null and completed_at is null and created_at::date >= $2 and created_at::date <= $3)
+          )`,
+      [staffId, from, to]
+    ),
     safeQuery("select activated_at from profiles where id = $1 limit 1", [staffId]),
   ]);
 
@@ -223,6 +251,16 @@ router.get("/staff/:staffId", async (req, res) => {
   if (req.user?.role !== "admin" && req.user?.id !== staffId) {
     return res.status(403).json({ message: "Not allowed" });
   }
+  // Explicit checks instead of letting a bad range fall through to
+  // computePerformance's own guard, which returns a silent all-zero
+  // result for from > to with no explanation of why. A clear error here
+  // is more honest than a mysteriously empty report.
+  if (from > to) {
+    return res.status(400).json({ message: "'from' must be on or before 'to'." });
+  }
+  if (daysBetween(from, to) > MAX_RANGE_DAYS) {
+    return res.status(400).json({ message: "Date range too large — please select a shorter period." });
+  }
   try {
     const result = await computePerformance(staffId, from, to);
     res.json(result);
@@ -238,6 +276,12 @@ router.get("/summary", async (req, res) => {
   if (req.user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ message: "from and to are required" });
+  if (from > to) {
+    return res.status(400).json({ message: "'from' must be on or before 'to'." });
+  }
+  if (daysBetween(from, to) > MAX_RANGE_DAYS) {
+    return res.status(400).json({ message: "Date range too large — please select a shorter period." });
+  }
 
   try {
     const { rows: members } = await pool.query("select id, name from profiles where role = 'staff'");

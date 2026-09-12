@@ -6,23 +6,29 @@ import { broadcastNewMessages } from "../lib/ws.js";
 
 const router = Router();
 
-// GET /api/tasks?assigneeId=...&status=...&page=1&pageSize=24
-// Paginated + filtered server-side now (previously fetched every task
-// and filtered client-side — fine at small scale, but doesn't hold up
-// as real usage accumulates). Returns { tasks, total, page, pageSize,
-// totalPages } instead of a plain array.
+// GET /api/tasks?assigneeId=...&status=...&unassigned=true&page=1&pageSize=24
+// Paginated + filtered server-side. Returns { tasks, total, page,
+// pageSize, totalPages } instead of a plain array.
+//
+// `unassigned=true` is a new filter — tasks with no assignee at all
+// (assignee_id is null). It's independent of `status` (a task can be
+// unassigned AND "In Progress", for instance) but in practice the admin
+// All Tasks page only ever sends one filter at a time, treating
+// "Unassigned" as its own pill alongside All/In Progress/Complete.
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const assigneeId = isAdmin ? req.query.assigneeId : req.user.id;
   const status = req.query.status; // "In Progress" | "Complete" | undefined (= all)
+  const unassignedOnly = req.query.unassigned === "true";
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 24));
   const offset = (page - 1) * pageSize;
 
   const where = [];
   const params = [];
-  if (assigneeId) { params.push(assigneeId); where.push(`t.assignee_id = $${params.length}`); }
-  if (status)     { params.push(status);     where.push(`t.status = $${params.length}`); }
+  if (assigneeId)     { params.push(assigneeId); where.push(`t.assignee_id = $${params.length}`); }
+  if (status)         { params.push(status);     where.push(`t.status = $${params.length}`); }
+  if (unassignedOnly) { where.push(`t.assignee_id is null`); }
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
   const { rows: countRows } = await pool.query(`select count(*)::int as count from tasks t ${whereSql}`, params);

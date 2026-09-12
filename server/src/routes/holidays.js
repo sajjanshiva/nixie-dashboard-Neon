@@ -56,97 +56,51 @@ router.delete("/:date", async (req, res) => {
   }
 });
 
-const INDIAN_HOLIDAYS_BY_YEAR = {
-  2024: [
-    { date: "2024-01-01", name: "New Year's Day" },
-    { date: "2024-01-15", name: "Makar Sankranti / Pongal" },
-    { date: "2024-01-26", name: "Republic Day" },
-    { date: "2024-03-08", name: "Maha Shivratri" },
-    { date: "2024-03-25", name: "Holi" },
-    { date: "2024-03-29", name: "Good Friday" },
-    { date: "2024-04-11", name: "Eid ul-Fitr" },
-    { date: "2024-04-14", name: "Dr. Ambedkar Jayanti" },
-    { date: "2024-05-01", name: "Labour Day" },
-    { date: "2024-06-17", name: "Bakrid / Eid al-Adha" },
-    { date: "2024-07-17", name: "Muharram" },
-    { date: "2024-08-15", name: "Independence Day" },
-    { date: "2024-08-19", name: "Raksha Bandhan" },
-    { date: "2024-08-26", name: "Janmashtami" },
-    { date: "2024-09-07", name: "Ganesh Chaturthi" },
-    { date: "2024-10-02", name: "Mahatma Gandhi Jayanti" },
-    { date: "2024-10-12", name: "Dussehra" },
-    { date: "2024-10-31", name: "Diwali" },
-    { date: "2024-11-15", name: "Guru Nanak Jayanti" },
-    { date: "2024-12-25", name: "Christmas" },
-  ],
-  2025: [
-    { date: "2025-01-01", name: "New Year's Day" },
-    { date: "2025-01-14", name: "Makar Sankranti / Pongal" },
-    { date: "2025-01-26", name: "Republic Day" },
-    { date: "2025-02-26", name: "Maha Shivratri" },
-    { date: "2025-03-14", name: "Holi" },
-    { date: "2025-03-31", name: "Eid ul-Fitr" },
-    { date: "2025-04-14", name: "Dr. Ambedkar Jayanti" },
-    { date: "2025-04-18", name: "Good Friday" },
-    { date: "2025-05-01", name: "Labour Day" },
-    { date: "2025-06-07", name: "Bakrid / Eid al-Adha" },
-    { date: "2025-07-06", name: "Muharram" },
-    { date: "2025-08-15", name: "Independence Day" },
-    { date: "2025-08-16", name: "Janmashtami" },
-    { date: "2025-08-27", name: "Ganesh Chaturthi" },
-    { date: "2025-10-02", name: "Mahatma Gandhi Jayanti" },
-    { date: "2025-10-02", name: "Dussehra / Vijayadashami" },
-    { date: "2025-10-20", name: "Diwali / Deepavali" },
-    { date: "2025-11-05", name: "Guru Nanak Jayanti" },
-    { date: "2025-12-25", name: "Christmas" },
-  ],
-  2026: [
-    { date: "2026-01-01", name: "New Year's Day" },
-    { date: "2026-01-14", name: "Makar Sankranti / Pongal" },
-    { date: "2026-01-26", name: "Republic Day" },
-    { date: "2026-02-16", name: "Maha Shivratri" },
-    { date: "2026-03-04", name: "Holi" },
-    { date: "2026-03-21", name: "Eid ul-Fitr" },
-    { date: "2026-04-03", name: "Good Friday" },
-    { date: "2026-04-14", name: "Dr. Ambedkar Jayanti" },
-    { date: "2026-05-01", name: "Labour Day" },
-    { date: "2026-05-27", name: "Bakrid / Eid al-Adha" },
-    { date: "2026-06-26", name: "Muharram" },
-    { date: "2026-08-15", name: "Independence Day" },
-    { date: "2026-08-28", name: "Raksha Bandhan" },
-    { date: "2026-09-04", name: "Janmashtami" },
-    { date: "2026-09-15", name: "Ganesh Chaturthi" },
-    { date: "2026-10-02", name: "Mahatma Gandhi Jayanti" },
-    { date: "2026-10-20", name: "Dussehra / Vijayadashami" },
-    { date: "2026-11-08", name: "Diwali / Deepavali" },
-    { date: "2026-11-24", name: "Guru Nanak Jayanti" },
-    { date: "2026-12-25", name: "Christmas" },
-  ],
-  2027: [
-    { date: "2027-01-01", name: "New Year's Day" },
-    { date: "2027-01-14", name: "Makar Sankranti / Pongal" },
-    { date: "2027-01-26", name: "Republic Day" },
-    { date: "2027-03-07", name: "Maha Shivratri" },
-    { date: "2027-03-10", name: "Eid ul-Fitr" },
-    { date: "2027-03-23", name: "Holi" },
-    { date: "2027-03-26", name: "Good Friday" },
-    { date: "2027-04-14", name: "Dr. Ambedkar Jayanti" },
-    { date: "2027-05-01", name: "Labour Day" },
-    { date: "2027-05-17", name: "Bakrid / Eid al-Adha" },
-    { date: "2027-07-16", name: "Muharram" },
-    { date: "2027-08-15", name: "Independence Day" },
-    { date: "2027-10-02", name: "Mahatma Gandhi Jayanti" },
-    { date: "2027-10-09", name: "Dussehra / Vijayadashami" },
-    { date: "2027-10-29", name: "Diwali / Deepavali" },
-    { date: "2027-11-14", name: "Guru Nanak Jayanti" },
-    { date: "2027-12-25", name: "Christmas" },
-  ],
-};
-
-function getIndianHolidaysForYear(yearNum) {
-  if (INDIAN_HOLIDAYS_BY_YEAR[yearNum]) {
-    return INDIAN_HOLIDAYS_BY_YEAR[yearNum];
+// Fetches India's national holidays live from Calendarific for any
+// year, indefinitely — replaces the old hardcoded 2024-2027 list.
+// Returns { list, usedFallback } — usedFallback tells the caller
+// whether this is real Calendarific data or the small hardcoded
+// last-resort list (no API key configured, the API request failed, or
+// it came back with zero usable "National holiday" entries) — so the
+// admin isn't misled into thinking a fallback response is real,
+// complete India holiday data.
+async function fetchCalendarificHolidays(year, country) {
+  const apiKey = process.env.CALENDARIFIC_API_KEY;
+  if (!apiKey) {
+    console.warn("CALENDARIFIC_API_KEY not set — using a small generic fallback list instead.");
+    return { list: getGenericFallbackHolidays(year), usedFallback: true };
   }
+
+  try {
+    const resp = await fetch(
+      `https://calendarific.com/api/v2/holidays?api_key=${apiKey}&country=${country}&year=${year}`
+    );
+    if (!resp.ok) throw new Error(`Calendarific request failed: ${resp.status}`);
+
+    const data = await resp.json();
+    const holidays = data?.response?.holidays || [];
+
+    const list = holidays
+      .filter((h) => Array.isArray(h.type) && h.type.includes("National holiday"))
+      .map((h) => ({ date: h.date?.iso?.slice(0, 10), name: h.name }))
+      .filter((h) => h.date && h.name);
+
+    if (list.length > 0) return { list, usedFallback: false };
+
+    console.warn(`Calendarific returned no "National holiday" entries for ${country} ${year} — using fallback list.`);
+    return { list: getGenericFallbackHolidays(year), usedFallback: true };
+  } catch (err) {
+    console.error("Calendarific fetch failed, using generic fallback:", err.message);
+    return { list: getGenericFallbackHolidays(year), usedFallback: true };
+  }
+}
+
+// Last-resort fallback — only used if CALENDARIFIC_API_KEY isn't set at
+// all, the live request genuinely fails, or it returns nothing usable.
+// Not year-limited like the old hardcoded table was, since these are
+// all fixed-date holidays (same date every year) rather than lunar/
+// festival dates that shift — safe to generate for any year.
+function getGenericFallbackHolidays(yearNum) {
   return [
     { date: `${yearNum}-01-01`, name: "New Year's Day" },
     { date: `${yearNum}-01-26`, name: "Republic Day" },
@@ -159,21 +113,34 @@ function getIndianHolidaysForYear(yearNum) {
 }
 
 // POST /api/holidays/seed?year=2026&country=IN — admin only.
-// Fetches/seeds that year's national holidays and
-// pre-marks them (source: 'national'). Safe to run more than once —
-// it upserts on date, so it won't duplicate or wipe out any admin edits
-// made to a date that already exists.
+// Fetches/seeds that year's national holidays and pre-marks them
+// (source: 'national'). Safe to run more than once — it upserts on
+// date, so it won't duplicate or wipe out any admin edits made to a
+// date that already exists.
 router.post("/seed", async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ message: "Admin only" });
 
-  const year = Number(req.query.year) || new Date().getFullYear();
+  // Explicit validation instead of letting a bad/missing value silently
+  // become "the current year" — a genuinely malformed request (e.g.
+  // ?year=abc) now tells the caller clearly instead of quietly seeding
+  // the wrong year.
+  const rawYear = req.query.year;
+  const year = rawYear === undefined ? new Date().getFullYear() : Number(rawYear);
+  if (!Number.isInteger(year) || year < 1900 || year > 2200) {
+    return res.status(400).json({ message: "year must be a valid 4-digit year" });
+  }
+
   const country = (req.query.country || "IN").toUpperCase();
 
   try {
     let list = [];
+    let usedFallback = false;
+
     if (country === "IN") {
-      list = getIndianHolidaysForYear(year);
+      ({ list, usedFallback } = await fetchCalendarificHolidays(year, "IN"));
     } else {
+      // Unchanged for every other country — Nager.Date already has
+      // real coverage outside India.
       try {
         const resp = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${country}`);
         if (resp.ok && resp.status === 200) {
@@ -184,7 +151,8 @@ router.post("/seed", async (req, res) => {
         list = [];
       }
       if (!list.length) {
-        list = getIndianHolidaysForYear(year);
+        list = getGenericFallbackHolidays(year);
+        usedFallback = true;
       }
     }
 
@@ -192,7 +160,11 @@ router.post("/seed", async (req, res) => {
     if (rows.length > 0) {
       // Multi-row insert, on conflict (date) do nothing — same as the
       // old ignoreDuplicates upsert, so re-running this never wipes out
-      // any admin edits already made to a date that exists.
+      // any admin edits already made to a date that exists. If two
+      // holidays genuinely fall on the same real calendar date (this
+      // does happen — e.g. Gandhi Jayanti and Dussehra both landed on
+      // Oct 2, 2025), only the first one in the list is kept; admin can
+      // rename that date manually if both names matter to show.
       const values = rows.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(", ");
       const params = rows.flatMap((r) => [r.date, r.name, r.source]);
       await pool.query(
@@ -201,7 +173,11 @@ router.post("/seed", async (req, res) => {
       );
     }
 
-    res.json({ inserted: rows.length });
+    // `usedFallback` lets the Holidays page show a visible warning
+    // ("used a generic backup list — live holiday data wasn't
+    // available") instead of admin assuming this was real, complete
+    // India holiday data when it wasn't.
+    res.json({ inserted: rows.length, usedFallback });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

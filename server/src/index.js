@@ -18,7 +18,6 @@ import imagekitAuthRoute from "./routes/imagekitAuth.js";
 import shopifyWebhooks from "./routes/webhooksShopify.js";
 import whatsappWebhooks from "./routes/webhooksWhatsapp.js";
 import pushRoute from "./routes/push.js";
-import pushWebhooks from "./routes/webhooksPush.js";
 import settingsRoute from "./routes/settings.js";
 import holidaysRoute from "./routes/holidays.js";
 import performanceRoute from "./routes/performance.js";
@@ -49,13 +48,10 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({ profile: safeProfile });
 });
 
-// Previously called by a Postgres trigger via pg_net (Supabase-only —
-// no equivalent on Neon). Round 2 will replace this call path with a
-// direct call from application code at the point a notification is
-// created, instead of a database trigger. Left mounted for now since
-// the route itself (secret-verified, not requireAuth) still works
-// standalone.
-app.use("/webhooks/push", pushWebhooks);
+// NOTE: the old /webhooks/push/notify route (for a Supabase pg_net
+// trigger) has been removed — that mechanism doesn't exist on Neon, and
+// push notifications have been sent directly from application code
+// (lib/notify.js) ever since the migration. Nothing was calling it.
 
 // All routes below require a valid session (our own JWT now, not Supabase).
 app.use("/api/messages", requireAuth, messagesRoute);

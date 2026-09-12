@@ -3,7 +3,7 @@ import { ShoppingBag, Tag, ChevronRight, Trash2, ChevronLeft } from "lucide-reac
 import { getTasks, deleteTask } from "../../lib/api.js";
 import TaskDrawer from "../../components/TaskDrawer.jsx";
 
-const FILTERS = ["All", "In Progress", "Complete"];
+const FILTERS = ["All", "In Progress", "Complete", "Unassigned"];
 const PAGE_SIZE = 24;
 
 function SourceIcon({ source }) {
@@ -16,30 +16,44 @@ export default function AllTasks() {
   const [tasks, setTasks]       = useState([]);
   const [total, setTotal]       = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [counts, setCounts]     = useState({ All: 0, "In Progress": 0, Complete: 0 });
+  const [counts, setCounts]     = useState({ All: 0, "In Progress": 0, Complete: 0, Unassigned: 0 });
   const [loading, setLoading]   = useState(true);
   const [filter, setFilter]     = useState("All");
   const [page, setPage]         = useState(1);
   const [openTask, setOpenTask] = useState(null);
   const [drawerWidth, setDrawerWidth] = useState(520);
 
-  // Filter pill counts — one lightweight call per status (pageSize:1,
+  // Filter pill counts — one lightweight call per filter (pageSize:1,
   // we only need `total` from each response, not the rows themselves).
   useEffect(() => {
     Promise.all([
       getTasks({ page: 1, pageSize: 1 }),
       getTasks({ status: "In Progress", page: 1, pageSize: 1 }),
       getTasks({ status: "Complete", page: 1, pageSize: 1 }),
-    ]).then(([all, inProgress, complete]) => {
-      setCounts({ All: all.total, "In Progress": inProgress.total, Complete: complete.total });
+      getTasks({ unassigned: true, page: 1, pageSize: 1 }),
+    ]).then(([all, inProgress, complete, unassigned]) => {
+      setCounts({
+        All: all.total,
+        "In Progress": inProgress.total,
+        Complete: complete.total,
+        Unassigned: unassigned.total,
+      });
     }).catch(() => {});
   }, [tasks.length]); // re-derive after any add/delete changes the totals
 
-  // The actual page of tasks — server-side filtered + paginated now,
-  // instead of fetching everything and filtering client-side.
+  // The actual page of tasks — server-side filtered + paginated. The
+  // "Unassigned" pill sends `unassigned: true` instead of a `status`
+  // value — it's a separate filter dimension (assignee, not progress
+  // status), so only one or the other is ever sent per fetch.
   useEffect(() => {
     setLoading(true);
-    getTasks({ status: filter === "All" ? undefined : filter, page, pageSize: PAGE_SIZE })
+    const isUnassigned = filter === "Unassigned";
+    getTasks({
+      status: !isUnassigned && filter !== "All" ? filter : undefined,
+      unassigned: isUnassigned ? true : undefined,
+      page,
+      pageSize: PAGE_SIZE,
+    })
       .then((data) => {
         setTasks(data.tasks || []);
         setTotal(data.total || 0);

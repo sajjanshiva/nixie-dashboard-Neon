@@ -1,6 +1,6 @@
 # Nixie Dashboard — Express Server
 
-Backend API service for **Nixie Dashboard**, providing database management via **Neon PostgreSQL**, Shopify webhook receivers, WhatsApp Cloud API integration, Brevo email invites, GPS attendance verification, and Web Push notifications.
+Backend API service for **Nixie Dashboard**, providing database management via **Neon PostgreSQL**, native WebSocket real-time chat server (`/ws/task-chat`), Shopify webhook receivers, WhatsApp Cloud API integration with multi-order chat mirroring, Brevo email invites, GPS attendance verification, and Web Push notifications.
 
 ---
 

@@ -15,14 +15,20 @@ router.get("/", async (req, res) => {
     res.json({
       officeStartTime: officeStartTime || "09:30",
       officeEndTime: officeEndTime || "17:00",
-      officeLocation: officeLocation || { lat: 0, lng: 0, radius_meters: 120 },
+      // FIX #5: no more fake { lat: 0, lng: 0 } fallback here — a
+      // genuinely unconfigured office location is now reported as
+      // `null`, so the Settings page shows empty fields (it already
+      // handles this gracefully via `s.officeLocation?.lat ?? ""`) and
+      // check-in gives a clear "not set up yet" message instead of
+      // comparing everyone's GPS against a bogus location.
+      officeLocation: officeLocation || null,
     });
   } catch (err) {
     console.error("[settings route] GET / error:", err);
     res.json({
       officeStartTime: "09:30",
       officeEndTime: "17:00",
-      officeLocation: { lat: 0, lng: 0, radius_meters: 120 },
+      officeLocation: null,
     });
   }
 });

@@ -48,16 +48,15 @@ function verifyMetaSignature(req) {
 
 // POST /webhooks/whatsapp
 // Incoming WhatsApp messages from Meta. Matches the sender's phone number
-// against tasks.client_phone to find which task(s)'s conversation this
-// belongs to.
+// against tasks.client_phone to find every task's chat this belongs to.
 //
-// Group-chat design (replaces the old "guess one task and lock it"
-// system): if the client swipe-replied to a specific message, that's a
-// certain match — delivered to just that one task, no ambiguity at all.
-// Otherwise, if this client has MORE THAN ONE active task right now, the
-// message is delivered into EVERY one of them (mirrored, each task gets
-// its own copy) — every assigned staff member + admin effectively share
-// one conversation with this client, same as a WhatsApp group. Nobody
+// Group-chat design: if this client has MORE THAN ONE active task right
+// now, the message is mirrored into EVERY one of them — every assigned
+// staff member + admin effectively share one conversation with this
+// client, same as a WhatsApp group. This applies unconditionally: there
+// is no "swipe-reply to a specific message = certain match, deliver to
+// just that one task" exception anymore — a reply-to-a-specific-message
+// still mirrors to every active task, same as any other message. Nobody
 // "claims" anything and nobody is blocked from replying.
 router.post("/", async (req, res) => {
   if (!verifyMetaSignature(req)) return res.status(401).send("Invalid signature");
@@ -79,7 +78,6 @@ router.post("/", async (req, res) => {
     const fromPhone = message.from; // digits-only, with country code
     const text = message.text?.body || "[unsupported message type]";
     const senderName = value.contacts?.[0]?.profile?.name || "Client";
-    const replyContextId = message.context?.id || null; // set if the client swipe-replied to a specific message
 
     // Pull every task on this phone number.
     const { rows: candidates } = await pool.query(`
@@ -97,40 +95,12 @@ router.post("/", async (req, res) => {
       return res.status(200).send("no matching task");
     }
 
-    // ── Certain match — client swipe-replied to a specific message we
-    //    sent. Delivered to just that one task, regardless of how many
-    //    other active tasks this client has. ──
-    let certainTask = null;
-    if (replyContextId) {
-      const { rows: originRows } = await pool.query(
-        "select task_id from messages where whatsapp_message_id = $1 limit 1",
-        [replyContextId]
-      );
-      if (originRows[0]) {
-        certainTask = phoneMatches.find((t) => t.id === originRows[0].task_id) || null;
-      }
-    }
-
-    // Which task(s) get this message: the certain match alone, every
-    // active task on this phone number (mirrored), or — if none are
-    // active — the single most-recently-active one as a last resort so
-    // the message isn't lost.
-    let targets;
-    if (certainTask) {
-      targets = [certainTask];
-    } else {
-      const activeMatches = phoneMatches.filter((t) => t.status !== "Complete");
-      if (activeMatches.length > 0) {
-        targets = activeMatches;
-      } else {
-        targets = [phoneMatches[0]];
-      }
-    }
-
-    // How many OTHER active tasks does this client have, for the
-    // one-line heads-up included in each notification/system context
-    // (the chat banner itself is computed on read, in GET /:taskId).
-    const activeCount = phoneMatches.filter((t) => t.status !== "Complete").length;
+    // Which task(s) get this message: every currently active (not
+    // Complete) task on this phone number — or, if none are active
+    // right now, the single most-recently-active one as a last resort
+    // so the message isn't lost entirely.
+    const activeMatches = phoneMatches.filter((t) => t.status !== "Complete");
+    const targets = activeMatches.length > 0 ? activeMatches : [phoneMatches[0]];
 
     for (const t of targets) {
       const { rows: inserted } = await pool.query(
