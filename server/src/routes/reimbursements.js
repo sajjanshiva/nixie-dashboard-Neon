@@ -3,25 +3,62 @@ import { pool } from "../lib/db.js";
 
 const router = Router();
 
+// GET /api/reimbursements — same pattern as GET /api/leaves: pagination
+// is OPT-IN via ?page=. No ?page= at all -> old plain-array behavior
+// (used by the staff-side Reimbursements.jsx page, unchanged). With
+// ?page= (and optional ?status=) -> new paginated shape, used by the
+// admin Approvals page.
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
-  const params = [];
-  let sql = `
-    select r.*, p.id as staff_profile_id, p.name as staff_name
-      from reimbursements r left join profiles p on p.id = r.staff_id
-  `;
-  if (!isAdmin) {
-    sql += " where r.staff_id = $1";
-    params.push(req.user.id);
-  }
-  sql += " order by r.created_at desc";
+  const status = req.query.status;
+  const paginated = req.query.page !== undefined;
 
-  const { rows } = await pool.query(sql, params);
+  const where = [];
+  const params = [];
+  if (!isAdmin) { params.push(req.user.id); where.push(`r.staff_id = $${params.length}`); }
+  if (status)   { params.push(status);      where.push(`r.status = $${params.length}`); }
+  const whereSql = where.length ? `where ${where.join(" and ")}` : "";
+
+  if (!paginated) {
+    const { rows } = await pool.query(
+      `select r.*, p.id as staff_profile_id, p.name as staff_name
+         from reimbursements r left join profiles p on p.id = r.staff_id
+         ${whereSql}
+        order by r.created_at desc`,
+      params
+    );
+    const reimbursements = rows.map(({ staff_profile_id, staff_name, ...r }) => ({
+      ...r,
+      staff: staff_profile_id ? { id: staff_profile_id, name: staff_name } : null,
+    }));
+    return res.json(reimbursements);
+  }
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 18));
+  const offset = (page - 1) * pageSize;
+
+  const { rows: countRows } = await pool.query(
+    `select count(*)::int as count from reimbursements r ${whereSql}`,
+    params
+  );
+  const total = countRows[0].count;
+
+  const pageParams = [...params, pageSize, offset];
+  const { rows } = await pool.query(
+    `select r.*, p.id as staff_profile_id, p.name as staff_name
+       from reimbursements r left join profiles p on p.id = r.staff_id
+       ${whereSql}
+      order by r.created_at desc
+      limit $${pageParams.length - 1} offset $${pageParams.length}`,
+    pageParams
+  );
   const reimbursements = rows.map(({ staff_profile_id, staff_name, ...r }) => ({
     ...r,
     staff: staff_profile_id ? { id: staff_profile_id, name: staff_name } : null,
   }));
-  res.json(reimbursements);
+
+  res.json({ reimbursements, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 
 router.post("/", async (req, res) => {

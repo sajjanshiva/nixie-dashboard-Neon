@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Bell as BellIcon, BellPlus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext.jsx";
 import { getNotifications, markAllNotificationsRead } from "../lib/api.js";
 import { enablePush, getPushPermission, isPushSupported } from "../lib/push.js";
@@ -9,6 +10,7 @@ const POLL_INTERVAL_MS = 20 * 1000;
 
 export default function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen]   = useState(false);
   const [items, setItems] = useState([]);
   const [pushPermission, setPushPermission] = useState("unsupported");
@@ -111,6 +113,11 @@ export default function NotificationBell() {
     if (!user) return;
     await markAllNotificationsRead().catch(() => {});
     setItems((its) => its.map((i) => ({ ...i, read: true })));
+  }
+
+  function goToAllNotifications() {
+    setOpen(false);
+    navigate(user?.role === "admin" ? "/admin/notifications" : "/staff/notifications");
   }
 
   function fmtTime(iso) {
@@ -221,6 +228,14 @@ export default function NotificationBell() {
               ))
             )}
           </div>
+
+          {/* View all — links to the full paginated history page */}
+          <button
+            onClick={goToAllNotifications}
+            className="w-full border-t border-slate-100 px-4 py-2.5 text-center text-[12px] font-semibold text-accent hover:bg-slate-50 dark:border-white/6 dark:hover:bg-white/5"
+          >
+            View all
+          </button>
         </div>
       )}
     </div>

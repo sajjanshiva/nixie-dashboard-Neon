@@ -5,6 +5,8 @@ import { getShopifyLeads, markLeadContacted } from "../../lib/api.js";
 import Modal from "../../components/Modal.jsx";
 import LeadDetails from "../../components/LeadDetails.jsx";
 
+const BATCH_SIZE = 18;
+
 function StatusBadge({ status }) {
   const map = {
     assigned: "bg-slate-100 text-slate-500 dark:bg-white/8 dark:text-slate-400",
@@ -23,10 +25,35 @@ export default function MyLeads() {
   const [viewingId, setViewingId] = useState(null);
   const [marking, setMarking] = useState(false);
 
-  function reload() {
-    if (user) getShopifyLeads({ assigneeId: user.id }).then(setLeads);
+  // "Load more" pagination — server-side page/pageSize now, instead of
+  // fetching this staff member's entire lead history in one shot.
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Fresh load (user changes, or on mount) — resets to page 1 and
+  // replaces the list rather than appending.
+  useEffect(() => {
+    if (!user) return;
+    setPage(1);
+    getShopifyLeads({ assigneeId: user.id, page: 1, pageSize: BATCH_SIZE }).then((data) => {
+      setLeads(data.leads || []);
+      setTotalPages(data.totalPages || 1);
+    });
+  }, [user]);
+
+  function loadMore() {
+    if (!user || page >= totalPages) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    getShopifyLeads({ assigneeId: user.id, page: nextPage, pageSize: BATCH_SIZE })
+      .then((data) => {
+        setLeads((prev) => [...prev, ...(data.leads || [])]);
+        setTotalPages(data.totalPages || 1);
+        setPage(nextPage);
+      })
+      .finally(() => setLoadingMore(false));
   }
-  useEffect(reload, [user]);
 
   const viewing = leads.find((l) => l.id === viewingId) || null;
 
@@ -77,6 +104,18 @@ export default function MyLeads() {
           ))
         )}
       </div>
+
+      {page < totalPages && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="rounded-lg border border-slate-200 px-4 py-2 text-[12.5px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      )}
 
       <Modal open={!!viewing} onClose={() => setViewingId(null)}>
         {viewing && (

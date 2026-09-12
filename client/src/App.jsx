@@ -12,6 +12,7 @@ import Login from "./pages/Login.jsx";
 import AcceptInvite from "./pages/AcceptInvite.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
+import Notifications from "./pages/Notifications.jsx";
 import AllTasks from "./pages/admin/AllTasks.jsx";
 import ShopifyInbox from "./pages/admin/ShopifyInbox.jsx";
 import Approvals from "./pages/admin/Approvals.jsx";
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/admin/performance" element={<ProtectedRoute role="admin"><AdminShell title="Performance"><AdminPerformance /></AdminShell></ProtectedRoute>} />
         <Route path="/admin/holidays" element={<ProtectedRoute role="admin"><AdminShell title="Holidays"><AdminHolidays /></AdminShell></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminShell title="Settings"><AdminSettings /></AdminShell></ProtectedRoute>} />
+        <Route path="/admin/notifications" element={<ProtectedRoute role="admin"><AdminShell title="Notifications"><Notifications /></AdminShell></ProtectedRoute>} />
 
         {/* Home is always reachable once logged in — it's the only place staff can check in/out */}
         <Route path="/staff/home" element={<ProtectedRoute role="staff"><StaffShell title="Home"><StaffHome /></StaffShell></ProtectedRoute>} />
@@ -85,6 +87,7 @@ export default function App() {
         <Route path="/staff/leave" element={<ProtectedRoute role="staff"><StaffShell title="Leave"><RequireCheckedIn><Leave /></RequireCheckedIn></StaffShell></ProtectedRoute>} />
         <Route path="/staff/reimbursements" element={<ProtectedRoute role="staff"><StaffShell title="Reimbursements"><RequireCheckedIn><Reimbursements /></RequireCheckedIn></StaffShell></ProtectedRoute>} />
         <Route path="/staff/performance" element={<ProtectedRoute role="staff"><StaffShell title="My Performance"><RequireCheckedIn><MyPerformance /></RequireCheckedIn></StaffShell></ProtectedRoute>} />
+        <Route path="/staff/notifications" element={<ProtectedRoute role="staff"><StaffShell title="Notifications"><Notifications /></StaffShell></ProtectedRoute>} />
 
         <Route
           path="*"

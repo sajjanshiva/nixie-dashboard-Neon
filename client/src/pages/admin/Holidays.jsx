@@ -9,6 +9,7 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const LIST_BATCH = 20;
 
 function toDateStr(y, m, d) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -18,16 +19,23 @@ export default function Holidays() {
   const now = new Date();
   const [viewYear, setViewYear]   = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
-  const [holidays, setHolidays]   = useState([]); // all holidays for viewYear
+  const [holidays, setHolidays]   = useState([]); // ALL holidays for viewYear — needed for the calendar's date markers
   const [loading, setLoading]     = useState(true);
   const [seeding, setSeeding]     = useState(false);
   const [editing, setEditing]     = useState(null); // { dateStr, existing }
   const [nameInput, setNameInput] = useState("");
+  // How many of `holidays` are currently revealed in the "This year's
+  // list" section below the calendar — a client-side "Load more" window
+  // over the already-fetched year (a year is naturally capped at ≤366
+  // rows, so one fetch is fine; this just avoids dumping 100+ rows on
+  // screen at once when an admin has marked lots of custom days).
+  const [listVisibleCount, setListVisibleCount] = useState(LIST_BATCH);
 
   async function load(year) {
     setLoading(true);
     try {
       setHolidays(await getHolidays(year));
+      setListVisibleCount(LIST_BATCH); // reset the reveal window on a fresh year load
     } catch {
       toast.error("Failed to load holidays");
     } finally {
@@ -42,6 +50,8 @@ export default function Holidays() {
     holidays.forEach((h) => { m[h.date] = h; });
     return m;
   }, [holidays]);
+
+  const visibleHolidays = holidays.slice(0, listVisibleCount);
 
   function changeMonth(delta) {
     let m = viewMonth + delta;
@@ -198,14 +208,17 @@ export default function Holidays() {
 
       {/* This year's list */}
       <div className="card overflow-hidden dark:bg-[#1A1D27]">
-        <div className="border-b border-slate-100 px-5 py-3.5 dark:border-white/6">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-white/6">
           <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">{viewYear} Holidays</p>
+          {holidays.length > 0 && (
+            <p className="text-[11.5px] text-slate-400">{holidays.length} total</p>
+          )}
         </div>
         <div className="divide-y divide-slate-50 dark:divide-white/6">
           {holidays.length === 0 && (
             <p className="px-5 py-6 text-center text-[13px] text-slate-400">No holidays marked yet.</p>
           )}
-          {holidays.map((h) => (
+          {visibleHolidays.map((h) => (
             <button
               key={h.date}
               onClick={() => openEditor(h.date)}
@@ -223,6 +236,16 @@ export default function Holidays() {
             </button>
           ))}
         </div>
+        {listVisibleCount < holidays.length && (
+          <div className="flex justify-center border-t border-slate-50 px-5 py-3 dark:border-white/6">
+            <button
+              onClick={() => setListVisibleCount((c) => c + LIST_BATCH)}
+              className="rounded-lg border border-slate-200 px-4 py-1.5 text-[12px] font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+            >
+              Load more ({holidays.length - listVisibleCount} more)
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Edit modal */}

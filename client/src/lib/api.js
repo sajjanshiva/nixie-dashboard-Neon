@@ -152,9 +152,15 @@ export async function undoTaskComplete(taskId) {
 
 // Joins the linked task (if this order has already been assigned/converted)
 // so the Orders tab can show who it's assigned to without a second query.
-export async function getShopifyOrders() {
+// Paginated (page/pageSize) — returns { orders, total, page, pageSize,
+// totalPages } instead of a plain array.
+export async function getShopifyOrders({ page, pageSize } = {}) {
   const token = await authToken();
-  return apiGet("/api/shopify-inbox/orders", token);
+  const params = new URLSearchParams();
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/shopify-inbox/orders${qs}`, token);
 }
 
 export async function updateOrderStatus(orderId, status) {
@@ -171,11 +177,17 @@ export async function assignOrder(order, { phone, assigneeId }) {
   return apiPost(`/api/shopify-inbox/orders/${order.id}/assign`, { phone, assigneeId }, token);
 }
 
-export async function getShopifyLeads({ assigneeId } = {}) {
+// Paginated (page/pageSize) — returns { leads, total, page, pageSize,
+// totalPages } instead of a plain array.
+export async function getShopifyLeads({ assigneeId, page, pageSize } = {}) {
   // Note: assigneeId param is now vestigial for staff (server always
   // scopes to req.user for non-admins) but harmless to keep passing.
   const token = await authToken();
-  return apiGet("/api/shopify-inbox/leads", token);
+  const params = new URLSearchParams();
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/shopify-inbox/leads${qs}`, token);
 }
 
 export async function markLeadContacted(leadId) {
@@ -192,9 +204,17 @@ export async function assignLead(leadId, assigneeId) {
 // Messages (task conversation)
 // ---------------------------------------------------------------------
 
-export async function getMessages(taskId) {
+// Chat-style "load earlier" pagination. No options -> latest 40 (oldest
+// first, ready to render). Pass { before: <messageId> } to get the 24
+// messages just before that one (for scrolling up into history). Returns
+// { messages, hasMore } instead of a plain array.
+export async function getMessages(taskId, { before, limit } = {}) {
   const token = await authToken();
-  return apiGet(`/api/messages/${taskId}`, token);
+  const params = new URLSearchParams();
+  if (before) params.set("before", before);
+  if (limit) params.set("limit", limit);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/messages/${taskId}${qs}`, token);
 }
 
 // Returns a WebSocket-based subscription instead of the old Supabase
@@ -225,9 +245,19 @@ export async function sendMessage({ taskId, text, toStaff, toClient }) {
 // Leaves
 // ---------------------------------------------------------------------
 
-export async function getLeaves({ staffId } = {}) {
+// Pagination is OPT-IN: pass { status, page, pageSize } to get the new
+// paginated shape { leaves, total, page, pageSize, totalPages } (used by
+// the admin Approvals page). Called with nothing (or just { staffId },
+// which the server ignores and scopes by the logged-in user instead) ->
+// old plain-array behavior, unchanged for the staff-side Leave.jsx page.
+export async function getLeaves({ staffId, status, page, pageSize } = {}) {
   const token = await authToken();
-  return apiGet("/api/leaves", token);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/leaves${qs}`, token);
 }
 
 export async function submitLeave(leave) {
@@ -244,9 +274,15 @@ export async function decideLeave(leaveId, status, rejectReason = null) {
 // Reimbursements
 // ---------------------------------------------------------------------
 
-export async function getReimbursements({ staffId } = {}) {
+// Same opt-in pagination pattern as getLeaves above.
+export async function getReimbursements({ staffId, status, page, pageSize } = {}) {
   const token = await authToken();
-  return apiGet("/api/reimbursements", token);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/reimbursements${qs}`, token);
 }
 
 export async function submitReimbursement(reimbursement) {
@@ -510,9 +546,21 @@ export async function resetPassword({ token, password }) {
 // Polled by NotificationBell.jsx every ~20s (replaces the old Supabase
 // Realtime channel — Neon has no equivalent, and for the bell, a short
 // poll delay is a fine tradeoff, unlike chat where it'd be noticeable).
+// Always just the 5 most recent — the dropdown preview.
 export async function getNotifications() {
   const token = await authToken();
   return apiGet("/api/notifications", token);
+}
+
+// Full paginated history, for the "View all" page. Returns
+// { notifications, total, page, pageSize, totalPages }.
+export async function getAllNotifications({ page, pageSize } = {}) {
+  const token = await authToken();
+  const params = new URLSearchParams();
+  if (page) params.set("page", page);
+  if (pageSize) params.set("pageSize", pageSize);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiGet(`/api/notifications/all${qs}`, token);
 }
 
 export async function markAllNotificationsRead() {

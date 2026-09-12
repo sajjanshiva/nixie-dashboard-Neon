@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import {
   Plane, Receipt, Check, X, ChevronDown, ChevronUp, Clock,
-  CheckCircle2, XCircle, AlertCircle,
+  CheckCircle2, XCircle, AlertCircle, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   getLeaves, getReimbursements, decideLeave, decideReimbursement,
 } from "../../lib/api.js";
+
+const PAGE_SIZE = 18;
 
 // ── Status badge ──────────────────────────────────────────────────────
 function StatusBadge({ status }) {
@@ -193,38 +195,120 @@ function StatusDropdown({ value, onChange, counts }) {
   );
 }
 
-export default function Approvals() {
-  const [tab, setTab]               = useState("leaves");
-  const [statusFilter, setStatusFilter] = useState("pending");
-  const [leaves, setLeaves]         = useState([]);
-  const [reimbursements, setReimbursements] = useState([]);
-  const [loading, setLoading]       = useState(true);
+// ── Shared pager ──────────────────────────────────────────────────────
+function Pager({ page, totalPages, onPrev, onNext }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-5 flex items-center justify-center gap-2">
+      <button
+        onClick={onPrev}
+        disabled={page === 1}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <span className="text-[12.5px] font-medium text-slate-500 dark:text-slate-400">
+        Page {page} of {totalPages}
+      </span>
+      <button
+        onClick={onNext}
+        disabled={page === totalPages}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  );
+}
 
+export default function Approvals() {
+  const [tab, setTab]                   = useState("leaves");
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [items, setItems]               = useState([]);
+  const [page, setPage]                 = useState(1);
+  const [totalPages, setTotalPages]     = useState(1);
+  const [loading, setLoading]           = useState(true);
+
+  // Per-tab total counts across all 3 statuses — for the tab badges.
+  const [tabTotals, setTabTotals] = useState({ leaves: 0, reimburse: 0 });
+  // Per-status counts within the CURRENT tab — for the status dropdown.
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
+
+  const getFn = tab === "leaves" ? getLeaves : getReimbursements;
+  const listKey = tab === "leaves" ? "leaves" : "reimbursements";
+
+  // Reset to page 1 whenever the tab or status filter changes.
+  useEffect(() => { setPage(1); }, [tab, statusFilter]);
+
+  // The actual page of results — server-side filtered + paginated.
   useEffect(() => {
-    Promise.all([getLeaves(), getReimbursements()])
-      .then(([l, r]) => { setLeaves(l); setReimbursements(r); })
+    setLoading(true);
+    getFn({ status: statusFilter, page, pageSize: PAGE_SIZE })
+      .then((data) => {
+        setItems(data[listKey] || []);
+        setTotalPages(data.totalPages || 1);
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [tab, statusFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Status-dropdown counts for the current tab — 3 lightweight calls
+  // (pageSize:1, we only need `total` from each), same pattern as
+  // AllTasks.jsx's filter-pill counts. Re-derived after any decide.
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => {
+    Promise.all([
+      getFn({ status: "pending", page: 1, pageSize: 1 }),
+      getFn({ status: "approved", page: 1, pageSize: 1 }),
+      getFn({ status: "rejected", page: 1, pageSize: 1 }),
+    ]).then(([p, a, r]) => {
+      setCounts({ pending: p.total, approved: a.total, rejected: r.total });
+    }).catch(() => {});
+  }, [tab, refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tab badge totals (all statuses combined per tab) — fetched once and
+  // re-derived after any decide, independent of which tab is active.
+  useEffect(() => {
+    Promise.all([
+      getLeaves({ status: "pending", page: 1, pageSize: 1 }),
+      getLeaves({ status: "approved", page: 1, pageSize: 1 }),
+      getLeaves({ status: "rejected", page: 1, pageSize: 1 }),
+      getReimbursements({ status: "pending", page: 1, pageSize: 1 }),
+      getReimbursements({ status: "approved", page: 1, pageSize: 1 }),
+      getReimbursements({ status: "rejected", page: 1, pageSize: 1 }),
+    ]).then(([lp, la, lr, rp, ra, rr]) => {
+      setTabTotals({
+        leaves: lp.total + la.total + lr.total,
+        reimburse: rp.total + ra.total + rr.total,
+      });
+    }).catch(() => {});
+  }, [refreshTick]);
 
   async function handleDecideLeave(id, status, rejectReason) {
     await decideLeave(id, status, rejectReason || null);
-    setLeaves((ls) => ls.map((l) => l.id === id ? { ...l, status, reject_reason: rejectReason || null } : l));
+    // The item no longer belongs under this status filter — just refetch
+    // this page fresh from the server rather than trying to patch it
+    // in place (keeps totals/pagination always accurate).
+    refresh();
   }
   async function handleDecideReimburse(id, status, rejectReason) {
     await decideReimbursement(id, status, rejectReason || null);
-    setReimbursements((rs) => rs.map((r) => r.id === id ? { ...r, status, reject_reason: rejectReason || null } : r));
+    refresh();
   }
 
-  const list     = tab === "leaves" ? leaves : reimbursements;
-  const filtered = list.filter((i) => i.status === statusFilter);
-
-  // Counts per status for the current tab
-  const counts = { pending: 0, approved: 0, rejected: 0 };
-  list.forEach((i) => { if (i.status in counts) counts[i.status]++; });
+  function refresh() {
+    setRefreshTick((t) => t + 1);
+    setLoading(true);
+    getFn({ status: statusFilter, page, pageSize: PAGE_SIZE })
+      .then((data) => {
+        setItems(data[listKey] || []);
+        setTotalPages(data.totalPages || 1);
+      })
+      .finally(() => setLoading(false));
+  }
 
   const TABS = [
-    { id: "leaves",       label: "Leaves",         icon: Plane,    count: leaves.length },
-    { id: "reimburse",    label: "Reimbursements",  icon: Receipt,  count: reimbursements.length },
+    { id: "leaves",    label: "Leaves",         icon: Plane,   count: tabTotals.leaves },
+    { id: "reimburse", label: "Reimbursements",  icon: Receipt, count: tabTotals.reimburse },
   ];
 
   return (
@@ -265,7 +349,7 @@ export default function Approvals() {
             <div key={i} className="h-36 animate-pulse rounded-2xl bg-slate-100 dark:bg-white/5" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-100 py-14 text-center dark:border-white/6">
           <div className="mb-3 rounded-2xl bg-slate-100 p-4 dark:bg-white/6">
             {tab === "leaves" ? <Plane size={28} className="text-slate-300" /> : <Receipt size={28} className="text-slate-300" />}
@@ -278,12 +362,20 @@ export default function Approvals() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {tab === "leaves"
-            ? filtered.map((l) => <RequestCard key={l.id} item={l} kind="leave"     onDecide={handleDecideLeave} />)
-            : filtered.map((r) => <RequestCard key={r.id} item={r} kind="reimburse" onDecide={handleDecideReimburse} />)
-          }
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {tab === "leaves"
+              ? items.map((l) => <RequestCard key={l.id} item={l} kind="leave"     onDecide={handleDecideLeave} />)
+              : items.map((r) => <RequestCard key={r.id} item={r} kind="reimburse" onDecide={handleDecideReimburse} />)
+            }
+          </div>
+          <Pager
+            page={page}
+            totalPages={totalPages}
+            onPrev={() => setPage((p) => Math.max(1, p - 1))}
+            onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+          />
+        </>
       )}
     </div>
   );

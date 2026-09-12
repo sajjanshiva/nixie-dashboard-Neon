@@ -5,25 +5,64 @@ const router = Router();
 
 // GET /api/leaves — admin sees all, staff see only their own (matches
 // the old RLS policies exactly).
+//
+// Pagination is OPT-IN: if the caller passes ?page=..., this returns the
+// new paginated shape { leaves, total, page, pageSize, totalPages } with
+// an optional ?status= filter (used by the admin Approvals page). If no
+// ?page= is passed at all, this behaves exactly as before — a plain
+// array, everything for that user's scope — so the staff-side Leave.jsx
+// page (which just wants its own full history) keeps working untouched.
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
-  const params = [];
-  let sql = `
-    select l.*, p.id as staff_profile_id, p.name as staff_name
-      from leaves l left join profiles p on p.id = l.staff_id
-  `;
-  if (!isAdmin) {
-    sql += " where l.staff_id = $1";
-    params.push(req.user.id);
-  }
-  sql += " order by l.created_at desc";
+  const status = req.query.status; // "pending" | "approved" | "rejected" | undefined
+  const paginated = req.query.page !== undefined;
 
-  const { rows } = await pool.query(sql, params);
+  const where = [];
+  const params = [];
+  if (!isAdmin) { params.push(req.user.id); where.push(`l.staff_id = $${params.length}`); }
+  if (status)   { params.push(status);      where.push(`l.status = $${params.length}`); }
+  const whereSql = where.length ? `where ${where.join(" and ")}` : "";
+
+  if (!paginated) {
+    const { rows } = await pool.query(
+      `select l.*, p.id as staff_profile_id, p.name as staff_name
+         from leaves l left join profiles p on p.id = l.staff_id
+         ${whereSql}
+        order by l.created_at desc`,
+      params
+    );
+    const leaves = rows.map(({ staff_profile_id, staff_name, ...l }) => ({
+      ...l,
+      staff: staff_profile_id ? { id: staff_profile_id, name: staff_name } : null,
+    }));
+    return res.json(leaves);
+  }
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 18));
+  const offset = (page - 1) * pageSize;
+
+  const { rows: countRows } = await pool.query(
+    `select count(*)::int as count from leaves l ${whereSql}`,
+    params
+  );
+  const total = countRows[0].count;
+
+  const pageParams = [...params, pageSize, offset];
+  const { rows } = await pool.query(
+    `select l.*, p.id as staff_profile_id, p.name as staff_name
+       from leaves l left join profiles p on p.id = l.staff_id
+       ${whereSql}
+      order by l.created_at desc
+      limit $${pageParams.length - 1} offset $${pageParams.length}`,
+    pageParams
+  );
   const leaves = rows.map(({ staff_profile_id, staff_name, ...l }) => ({
     ...l,
     staff: staff_profile_id ? { id: staff_profile_id, name: staff_name } : null,
   }));
-  res.json(leaves);
+
+  res.json({ leaves, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 
 // POST /api/leaves — any logged-in staff member, for themselves only.

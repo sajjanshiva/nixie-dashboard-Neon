@@ -1,17 +1,28 @@
 import { Router } from "express";
 import { pool } from "../lib/db.js";
 import { sendWhatsAppMessage } from "../lib/whatsapp.js";
-import { broadcastNewMessages, broadcastAmbiguousResolved } from "../lib/ws.js";
+import { broadcastNewMessages } from "../lib/ws.js";
 
 const router = Router();
 
-// GET /api/messages/:taskId
-// Also brings back each message's linked ambiguous-reply state (if any)
-// so the client can render the "double-check this reply" warning, or
-// the "already replied elsewhere" resolved state, without a second call.
+// GET /api/messages/:taskId?limit=40
+// GET /api/messages/:taskId?before=<messageId>&limit=24
+//
+// Chat-style pagination: with no `before`, returns the LATEST `limit`
+// messages for this task (default 40), oldest-first (ready to render
+// top-to-bottom). With `before` (a message id already loaded on screen),
+// returns the `limit` messages (default 24) immediately preceding it —
+// used for "load earlier" when the staff member scrolls up.
+//
+// Also returns `siblingActiveTasks` — every OTHER active task that
+// shares this task's client_phone, if any. This is the group-chat
+// banner data: when a client has more than one active order, every
+// task's chat surfaces a one-time notice ("this client also has N other
+// active order(s)") instead of the old per-message "ambiguous reply"
+// claiming system, which has been removed entirely.
 router.get("/:taskId", async (req, res) => {
   const { taskId } = req.params;
-  const { rows: taskRows } = await pool.query("select assignee_id from tasks where id = $1", [taskId]);
+  const { rows: taskRows } = await pool.query("select assignee_id, client_phone from tasks where id = $1", [taskId]);
   const task = taskRows[0];
   if (!task) return res.status(404).json({ message: "Task not found" });
 
@@ -19,27 +30,58 @@ router.get("/:taskId", async (req, res) => {
   const isAssignee = task.assignee_id === req.user.id;
   if (!isAdmin && !isAssignee) return res.status(403).json({ message: "You don't have access to this task" });
 
+  const before = req.query.before;
+  const defaultLimit = before ? 24 : 40;
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || defaultLimit));
+
+  let cursorCreatedAt = null;
+  if (before) {
+    const { rows: cursorRows } = await pool.query("select created_at from messages where id = $1", [before]);
+    if (!cursorRows[0]) return res.json({ messages: [], hasMore: false, siblingActiveTasks: [] });
+    cursorCreatedAt = cursorRows[0].created_at;
+  }
+
+  const params = [taskId];
+  let cursorSql = "";
+  if (cursorCreatedAt) {
+    params.push(cursorCreatedAt);
+    cursorSql = `and created_at < $${params.length}`;
+  }
+  params.push(limit + 1); // fetch one extra to know if there's more beyond this page
+
   const { rows } = await pool.query(
-    `select m.*,
-            ar.claimed as ambiguous_claimed,
-            ar.claimed_by_task_id as ambiguous_claimed_by_task_id,
-            ar.claimed_by_user_id as ambiguous_claimed_by_user_id,
-            ar.claimed_reply_text as ambiguous_claimed_reply_text,
-            p.name as ambiguous_claimed_by_name,
-            ct.title as ambiguous_claimed_by_task_title
-       from messages m
-       left join ambiguous_whatsapp_replies ar on ar.id = m.ambiguous_reply_id
-       left join profiles p on p.id = ar.claimed_by_user_id
-       left join tasks ct on ct.id = ar.claimed_by_task_id
-      where m.task_id = $1
-      order by m.created_at asc`,
-    [taskId]
+    `select * from messages
+      where task_id = $1 ${cursorSql}
+      order by created_at desc
+      limit $${params.length}`,
+    params
   );
-  res.json(rows);
+
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).reverse(); // oldest-first, ready to render
+
+  // Sibling active tasks — only computed on the initial load (no
+  // `before`), since the banner is shown once and doesn't need to be
+  // recomputed every time older messages are paged in.
+  let siblingActiveTasks = [];
+  if (!before && task.client_phone) {
+    const { rows: siblings } = await pool.query(
+      `select id, title from tasks
+        where client_phone = $1 and id != $2 and status != 'Complete'`,
+      [task.client_phone, taskId]
+    );
+    siblingActiveTasks = siblings;
+  }
+
+  res.json({ messages: page, hasMore, siblingActiveTasks });
 });
 
 // POST /api/messages/send
 // Body: { taskId, text, toStaff, toClient }
+// The old "ambiguous reply claiming" logic (atomic claim + race-check
+// before a client-directed reply) has been removed entirely — replaced
+// by the group-chat mirroring in webhooksWhatsapp.js. Any assignee (or
+// admin) can reply from any task's chat, anytime, without being blocked.
 router.post("/send", async (req, res) => {
   const { taskId, text, toStaff, toClient } = req.body;
   if (!taskId || !text?.trim() || (!toStaff && !toClient)) {
@@ -53,48 +95,6 @@ router.post("/send", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const isAssignee = task.assignee_id === req.user.id;
   if (!isAdmin && !isAssignee) return res.status(403).json({ message: "You don't have access to this task" });
-
-  // ── Ambiguous-reply claim, atomic ──────────────────────────────────
-  // If this task has an unclaimed ambiguous incoming message (the same
-  // client text also landed in another active task because we couldn't
-  // tell which one it was about), a client-directed reply from here is
-  // treated as "this is the answer to that." The UPDATE below only
-  // succeeds if the row is STILL unclaimed at the exact moment it runs —
-  // Postgres processes concurrent updates to the same row one at a time,
-  // so if two staff reply in two different linked tasks at nearly the
-  // same instant, only one of these UPDATEs can actually match
-  // "claimed = false" and return a row. The other gets 0 rows back —
-  // that's the race-proof guarantee: whoever's UPDATE lands first wins,
-  // and the loser is stopped here, BEFORE anything is sent to WhatsApp
-  // or inserted into this chat.
-  let claimedAmbiguousId = null;
-  if (toClient) {
-    const { rows: pending } = await pool.query(
-      `select ar.id from ambiguous_whatsapp_replies ar
-         join messages m on m.ambiguous_reply_id = ar.id
-        where m.task_id = $1 and ar.claimed = false
-        order by ar.created_at desc limit 1`,
-      [taskId]
-    );
-    if (pending[0]) {
-      const { rows: claimed } = await pool.query(
-        `update ambiguous_whatsapp_replies
-            set claimed = true, claimed_by_task_id = $1, claimed_by_user_id = $2,
-                claimed_reply_text = $3, claimed_at = now()
-          where id = $4 and claimed = false
-          returning id`,
-        [taskId, req.user.id, text, pending[0].id]
-      );
-      if (claimed.length === 0) {
-        // Lost the race — someone else's reply (in another linked task)
-        // claimed this a moment earlier. Refuse to send a second reply.
-        return res.status(409).json({
-          message: "This client's message was already replied to from another task — check that task's chat for what was said.",
-        });
-      }
-      claimedAmbiguousId = claimed[0].id;
-    }
-  }
 
   const inserted = [];
   if (toStaff) {
@@ -127,25 +127,6 @@ router.post("/send", async (req, res) => {
   // Push the new message(s) instantly to anyone else with this task's
   // chat open right now.
   broadcastNewMessages(taskId, inserted);
-
-  // If this reply just claimed an ambiguous message, tell every OTHER
-  // linked task's chat live — who answered it, from where, and what
-  // they said — so nobody there thinks it's still waiting on them.
-  if (claimedAmbiguousId) {
-    const { rows: linkedTasks } = await pool.query(
-      "select distinct task_id from messages where ambiguous_reply_id = $1 and task_id != $2",
-      [claimedAmbiguousId, taskId]
-    );
-    if (linkedTasks.length > 0) {
-      broadcastAmbiguousResolved(linkedTasks.map((r) => r.task_id), {
-        ambiguousReplyId: claimedAmbiguousId,
-        claimedByTaskId: taskId,
-        claimedByTaskTitle: task.title,
-        claimedByUserName: req.user.name,
-        claimedReplyText: text,
-      });
-    }
-  }
 
   res.json({ ok: true, messages: inserted });
 });

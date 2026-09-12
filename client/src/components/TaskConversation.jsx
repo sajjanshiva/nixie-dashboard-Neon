@@ -12,7 +12,7 @@ import {
 import { useAuth } from "../lib/AuthContext.jsx";
 
 // ── Chat bubble components ──────────────────────────────────────────────
-function Bubble({ msg, onRetry, currentTaskId }) {
+function Bubble({ msg, onRetry }) {
   if (!msg) return null;
   const isPending = msg._status === "pending";
   const isFailed  = msg._status === "failed";
@@ -81,9 +81,8 @@ function Bubble({ msg, onRetry, currentTaskId }) {
 
   const fromClient = !!msg.is_client;
   const authorName = msg.author_name || (fromClient ? "Client" : "Staff");
-  const resolvedElsewhere = msg.ambiguous_reply_id && msg.ambiguous_claimed && msg.ambiguous_claimed_by_task_id !== currentTaskId;
   return (
-    <div className={`my-2 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending || resolvedElsewhere ? "opacity-60" : ""}`}>
+    <div className={`my-2 flex items-end gap-2 ${fromClient ? "" : "flex-row-reverse"} ${isPending ? "opacity-60" : ""}`}>
       <Avatar name={authorName} tone={fromClient ? "client" : "admin"} className="h-7 w-7 shrink-0 text-[10px]" />
       <div className={`max-w-[78%] rounded-2xl px-4 py-3 ${
         isFailed
@@ -102,26 +101,6 @@ function Bubble({ msg, onRetry, currentTaskId }) {
         </p>
         <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800 dark:text-slate-100">{msg.text || ""}</p>
 
-        {/* Ambiguous-reply state: this same incoming message was also
-            linked into another active task (client had 2+ active tasks
-            on this phone number, no swipe-reply to disambiguate). */}
-        {msg.ambiguous_reply_id && !msg.ambiguous_claimed && (
-          <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-100/70 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-            <AlertCircle size={12} className="mt-0.5 shrink-0" />
-            <span>This client also has another active task — double-check this reply is about the right one before responding.</span>
-          </div>
-        )}
-        {msg.ambiguous_reply_id && msg.ambiguous_claimed && msg.ambiguous_claimed_by_task_id !== currentTaskId && (
-          <div className="mt-2 rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] text-slate-500 dark:bg-white/8 dark:text-slate-400">
-            <p className="flex items-center gap-1 font-semibold">
-              <Check size={11} /> Already replied by {msg.ambiguous_claimed_by_name || "a staff member"} in "{msg.ambiguous_claimed_by_task_title || "another task"}"
-            </p>
-            {msg.ambiguous_claimed_reply_text && (
-              <p className="mt-0.5 italic text-slate-400 dark:text-slate-500">"{msg.ambiguous_claimed_reply_text}"</p>
-            )}
-          </div>
-        )}
-
         {isFailed && (
           <div className="mt-1 flex items-center gap-2">
             <p className="flex items-center gap-1 text-[10.5px] text-rose-500"><AlertCircle size={10} /> Failed to send</p>
@@ -130,6 +109,27 @@ function Bubble({ msg, onRetry, currentTaskId }) {
         )}
         {isPending && <p className="mt-1 flex items-center gap-1 text-[10.5px] text-slate-400"><Clock size={10} /> Sending…</p>}
       </div>
+    </div>
+  );
+}
+
+// ── Group-chat banner — shown once at the top of the thread when this
+//    client has other active orders. Replaces the old per-message
+//    "ambiguous reply / already replied elsewhere" claiming system:
+//    nothing is locked or guessed anymore, everyone assigned to any of
+//    this client's active orders (plus admin) effectively shares one
+//    conversation, and this banner is just the heads-up that it's
+//    happening. ─────────────────────────────────────────────────────
+function MultiOrderBanner({ siblingTasks }) {
+  if (!siblingTasks || siblingTasks.length === 0) return null;
+  const names = siblingTasks.map((t) => t.title || "Untitled").join(", ");
+  return (
+    <div className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-[12px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+      <span>
+        This client also has {siblingTasks.length} other active order{siblingTasks.length > 1 ? "s" : ""}: {names}.
+        Messages here may relate to any of them — everyone assigned can see and reply.
+      </span>
     </div>
   );
 }
@@ -195,6 +195,9 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
 
   const { user }   = useAuth();
   const [messages, setMessages] = useState([]);
+  const [hasMoreEarlier, setHasMoreEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [siblingActiveTasks, setSiblingActiveTasks] = useState([]);
   const [toStaff, setToStaff]   = useState(true);
   const [toClient, setToClient] = useState(false);
   const [text, setText]         = useState("");
@@ -204,6 +207,10 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   const [detailsOpen, setDetailsOpen] = useState(false); // desktop collapsible
   const [infoSheetOpen, setInfoSheetOpen] = useState(false); // mobile info sheet
   const scrollRef = useRef(null);
+  // Set right before a "load earlier" prepend so the auto-scroll-to-bottom
+  // effect below skips that one update (we're fixing scroll position
+  // manually instead — see handleLoadEarlier).
+  const skipAutoScrollRef = useRef(false);
 
   // Sync local state when task prop changes (e.g. after mark complete in parent)
   useEffect(() => {
@@ -211,40 +218,24 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
     setTaskStatus(task.status || "In Progress");
   }, [task.progress, task.status, task.id]);
 
-  // Messages: initial load + live WebSocket subscription. subscribeToMessages
-  // is synchronous now (see api.js) specifically to avoid a race with React
-  // StrictMode's dev-mode double-mount closing the socket mid-handshake.
+  // Messages: initial load (latest 40) + live WebSocket subscription.
+  // subscribeToMessages is synchronous now (see api.js) specifically to
+  // avoid a race with React StrictMode's dev-mode double-mount closing
+  // the socket mid-handshake.
   useEffect(() => {
     setMessages([]);
+    setHasMoreEarlier(false);
+    setSiblingActiveTasks([]);
     if (!task?.id) return;
 
-    getMessages(task.id).then((data) => {
-      if (Array.isArray(data)) setMessages(data);
+    getMessages(task.id, { limit: 40 }).then((data) => {
+      setMessages(data?.messages || []);
+      setHasMoreEarlier(!!data?.hasMore);
+      setSiblingActiveTasks(data?.siblingActiveTasks || []);
     }).catch(() => {});
 
     const unsub = subscribeToMessages(task.id, (m) => {
       if (!m) return;
-
-      // Not a new chat message — a live update saying an ambiguous
-      // message (linked across multiple tasks) was just answered from
-      // somewhere else. Update every local copy of it to the resolved
-      // state instead of appending anything.
-      if (m.type === "ambiguous_resolved") {
-        setMessages((prev) => prev.map((msg) =>
-          msg.ambiguous_reply_id === m.ambiguousReplyId
-            ? {
-                ...msg,
-                ambiguous_claimed: true,
-                ambiguous_claimed_by_task_id: m.claimedByTaskId,
-                ambiguous_claimed_by_task_title: m.claimedByTaskTitle,
-                ambiguous_claimed_by_name: m.claimedByUserName,
-                ambiguous_claimed_reply_text: m.claimedReplyText,
-              }
-            : msg
-        ));
-        return;
-      }
-
       setMessages((prev) => {
         if (prev.some((e) => e.id === m.id)) return prev; // already have it
         // The duplicate-flicker fix: our own sent message can arrive back
@@ -272,8 +263,46 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
     return unsub;
   }, [task?.id]);
 
-  // Auto-scroll on new messages
+  // "Load earlier" — fetches the 24 messages just before the oldest one
+  // currently on screen, prepends them, and keeps the viewport visually
+  // still (fixes scrollTop by however much taller the content just got)
+  // instead of jumping the user's place in the conversation.
+  async function handleLoadEarlier() {
+    if (loadingEarlier || !hasMoreEarlier) return;
+    const oldest = messages.find((m) => m.id && !m._status);
+    if (!oldest) return;
+
+    setLoadingEarlier(true);
+    const container = scrollRef.current;
+    const prevScrollHeight = container?.scrollHeight || 0;
+    try {
+      const data = await getMessages(task.id, { before: oldest.id, limit: 24 });
+      const older = data?.messages || [];
+      if (older.length > 0) {
+        skipAutoScrollRef.current = true;
+        setMessages((prev) => [...older, ...prev]);
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight;
+            container.scrollTop = newScrollHeight - prevScrollHeight;
+          }
+        });
+      }
+      setHasMoreEarlier(!!data?.hasMore);
+    } catch {
+      toast.error("Failed to load earlier messages");
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }
+
+  // Auto-scroll to bottom on new messages — skipped for the one update
+  // right after a "load earlier" prepend (handled manually above instead).
   useEffect(() => {
+    if (skipAutoScrollRef.current) {
+      skipAutoScrollRef.current = false;
+      return;
+    }
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
@@ -282,10 +311,11 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   const linkList = typeof task.links === "string" ? task.links.split("\n").filter(Boolean) : [];
 
   // Shared by both the normal send button and Retry, so a retried
-  // message goes through the exact same path (including the same
-  // WS-race protection above) rather than a separate, easier-to-diverge
-  // code path. replaceTemps, when given, are the specific failed bubbles
-  // being retried — removed once the retry attempt resolves either way.
+  // message goes through the exact same path rather than a separate,
+  // easier-to-diverge code path. replaceTemps, when given, are the
+  // specific failed bubbles being retried — removed once the retry
+  // attempt resolves either way. No more "lost the race" handling here —
+  // sending is never blocked now that claiming has been removed.
   async function attemptSend(msgText, wantStaff, wantClient, replaceTemps = null) {
     const now = new Date().toISOString();
     const temps = [];
@@ -309,20 +339,7 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
         return [...withoutTemps, ...real.filter((r) => !ids.has(r.id))];
       });
     } catch (err) {
-      const lostRace = /already replied to from another task/i.test(err?.message || "");
-      if (lostRace) {
-        // Not a real failure, and not retryable — someone else genuinely
-        // already answered this. Remove the temp bubble entirely (Retry
-        // would just fail again the same way) and refresh from the
-        // server so this chat shows the real resolved state.
-        setMessages((p) => p.filter((m) => !temps.some((t) => t.id === m.id)));
-        toast.error(err.message);
-        getMessages(task.id).then((data) => {
-          if (Array.isArray(data)) setMessages(data);
-        }).catch(() => {});
-      } else {
-        setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
-      }
+      setMessages((p) => p.map((m) => temps.some((t) => t.id === m.id) ? { ...m, _status: "failed" } : m));
     }
   }
 
@@ -367,8 +384,10 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
       setTaskStatus("Complete");
       setProgress(100);
       onProgressChange?.(task.id, 100, "Complete");
-      getMessages(task.id).then((data) => {
-        if (Array.isArray(data)) setMessages(data);
+      getMessages(task.id, { limit: 40 }).then((data) => {
+        setMessages(data?.messages || []);
+        setHasMoreEarlier(!!data?.hasMore);
+        setSiblingActiveTasks(data?.siblingActiveTasks || []);
       }).catch(() => {});
     } catch (e) { alert(e.message); }
   }
@@ -496,13 +515,25 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
 
       {/* ── Chat thread ──────────────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+        {hasMoreEarlier && (
+          <div className="mb-2 flex justify-center">
+            <button
+              onClick={handleLoadEarlier}
+              disabled={loadingEarlier}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11.5px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+            >
+              {loadingEarlier ? "Loading…" : "Load earlier messages"}
+            </button>
+          </div>
+        )}
+        <MultiOrderBanner siblingTasks={siblingActiveTasks} />
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 opacity-50">
             <MessageCircle size={28} className="text-slate-300 dark:text-slate-600" />
             <p className="text-[12.5px] text-slate-400">No messages yet</p>
           </div>
         ) : (
-          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} onRetry={handleRetry} currentTaskId={task.id} />)
+          messages.map((m) => <Bubble key={m.id || Math.random()} msg={m} onRetry={handleRetry} />)
         )}
       </div>
 

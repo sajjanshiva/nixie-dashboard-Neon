@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Check, X as XIcon, ShoppingBag, Tag } from "lucide-react";
+import { Check, X as XIcon, ShoppingBag, Tag, ChevronLeft, ChevronRight } from "lucide-react";
 import { getShopifyOrders, getShopifyLeads, assignLead, assignOrder, assignTask, getTeamMembers } from "../../lib/api.js";
 import Modal from "../../components/Modal.jsx";
 import LeadDetails from "../../components/LeadDetails.jsx";
 import toast from "react-hot-toast";
+
+const PAGE_SIZE = 24;
 
 // ── Assign control (leads) — mirrors OrderAssignControl/ReassignOrderControl
 //    below, minus the phone field (leads already have one on file) ─────────
@@ -218,6 +220,32 @@ function ItemCard({ children }) {
   );
 }
 
+// ── Shared pager — same look as AllTasks.jsx's Prev/Next ───────────────
+function Pager({ page, totalPages, onPrev, onNext }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-5 flex items-center justify-center gap-2">
+      <button
+        onClick={onPrev}
+        disabled={page === 1}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <span className="text-[12.5px] font-medium text-slate-500 dark:text-slate-400">
+        Page {page} of {totalPages}
+      </span>
+      <button
+        onClick={onNext}
+        disabled={page === totalPages}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  );
+}
+
 export default function ShopifyInbox() {
   // LEADS first, ORDERS second (as requested)
   const [tab, setTab]     = useState("leads");
@@ -225,20 +253,59 @@ export default function ShopifyInbox() {
   const [leads, setLeads]   = useState([]);
   const [staff, setStaff]   = useState([]);
   const [viewingRef, setViewingRef] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // FIX (bug 1): separate loading flags per tab instead of one shared
+  // `loading` — previously both the leads and orders effects toggled the
+  // same flag, so whichever fetch finished first flipped it to false
+  // while the other tab's data (or even the active tab's, on first load)
+  // was still in flight, causing a flicker/empty-list flash. Each tab
+  // now only reacts to its own loading state.
+  const [loadingLeads, setLoadingLeads] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(true);
   const [assigningOrderId, setAssigningOrderId] = useState(null);
 
+  // Independent pagination per tab — switching tabs doesn't reset the
+  // other tab's page.
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersTotalPages, setOrdersTotalPages] = useState(1);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsTotalPages, setLeadsTotalPages] = useState(1);
+  const [leadsTotal, setLeadsTotal] = useState(0);
+
+  // Team list — fetched once.
   useEffect(() => {
-    Promise.all([
-      getShopifyOrders(),
-      getShopifyLeads(),
-      getTeamMembers(),
-    ]).then(([o, l, m]) => {
-      setOrders(o);
-      setLeads(l);
+    getTeamMembers().then((m) => {
       setStaff(m.filter((x) => x.role === "staff" && !x.pending && x.name));
-    }).finally(() => setLoading(false));
+    });
   }, []);
+
+  function loadLeads(page) {
+    setLoadingLeads(true);
+    return getShopifyLeads({ page, pageSize: PAGE_SIZE })
+      .then((data) => {
+        setLeads(data.leads || []);
+        setLeadsTotal(data.total || 0);
+        setLeadsTotalPages(data.totalPages || 1);
+      })
+      .finally(() => setLoadingLeads(false));
+  }
+
+  function loadOrders(page) {
+    setLoadingOrders(true);
+    return getShopifyOrders({ page, pageSize: PAGE_SIZE })
+      .then((data) => {
+        setOrders(data.orders || []);
+        setOrdersTotal(data.total || 0);
+        setOrdersTotalPages(data.totalPages || 1);
+      })
+      .finally(() => setLoadingOrders(false));
+  }
+
+  // Leads — refetch on page change.
+  useEffect(() => { loadLeads(leadsPage); }, [leadsPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Orders — refetch on page change.
+  useEffect(() => { loadOrders(ordersPage); }, [ordersPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAssignOrder(order, { phone, assigneeId }) {
     setAssigningOrderId(order.id);
@@ -260,6 +327,12 @@ export default function ShopifyInbox() {
         )
       );
       toast.success(assignedName ? `Order assigned to ${assignedName}` : "Order assigned");
+      // FIX (bug 2): re-sync totals/pagination from the server after an
+      // action, same as Approvals.jsx's refreshTick pattern. Assigning
+      // doesn't change how many rows exist today, but this keeps the
+      // page's numbers always server-truth instead of silently drifting
+      // if this page ever grows a status filter (like Approvals has).
+      loadOrders(ordersPage);
     } catch (err) {
       toast.error(err.message || "Failed to assign order");
     } finally {
@@ -279,6 +352,7 @@ export default function ShopifyInbox() {
         )
       );
       toast.success(newAssignee?.name ? `Moved to ${newAssignee.name}` : "Order reassigned");
+      loadOrders(ordersPage);
     } catch (err) {
       toast.error(err.message || "Failed to reassign");
     }
@@ -300,6 +374,7 @@ export default function ShopifyInbox() {
       } else {
         toast.success("Lead unassigned");
       }
+      loadLeads(leadsPage);
     } catch (err) {
       toast.error(err.message || "Failed to assign lead");
     }
@@ -312,9 +387,12 @@ export default function ShopifyInbox() {
     : leads.find((l) => l.id === viewingRef.id);
 
   const TABS = [
-    { id: "leads",  label: "Leads",  icon: Tag,          count: leads.length },
-    { id: "orders", label: "Orders", icon: ShoppingBag,  count: orders.length },
+    { id: "leads",  label: "Leads",  icon: Tag,          count: leadsTotal },
+    { id: "orders", label: "Orders", icon: ShoppingBag,  count: ordersTotal },
   ];
+
+  // Which loading flag applies to the tab currently on screen.
+  const loading = tab === "leads" ? loadingLeads : loadingOrders;
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
@@ -347,7 +425,7 @@ export default function ShopifyInbox() {
         ))}
       </div>
 
-      {/* Loading skeletons */}
+      {/* Loading skeletons — only for the tab actually on screen */}
       {loading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -356,126 +434,142 @@ export default function ShopifyInbox() {
         </div>
       ) : tab === "leads" ? (
         /* ── LEADS ── */
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {leads.length === 0 && (
-            <p className="text-[13px] text-slate-400">No leads yet.</p>
-          )}
-          {leads.map((l) => {
-            const assignedStaff = staff.find((s) => s.id === (l.assignee_id || l.assignee?.id));
-            const isAssigned = Boolean(assignedStaff);
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {leads.length === 0 && (
+              <p className="text-[13px] text-slate-400">No leads yet.</p>
+            )}
+            {leads.map((l) => {
+              const assignedStaff = staff.find((s) => s.id === (l.assignee_id || l.assignee?.id));
+              const isAssigned = Boolean(assignedStaff);
 
-            return (
-              <ItemCard key={l.id}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Tag size={12} className="text-amber-500" />
-                    <span className="text-[11.5px] font-bold text-amber-600">
-                      {l.lead_number || "Lead"}
+              return (
+                <ItemCard key={l.id}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Tag size={12} className="text-amber-500" />
+                      <span className="text-[11.5px] font-bold text-amber-600">
+                        {l.lead_number || "Lead"}
+                      </span>
+                    </div>
+                    <span
+                      className={`badge capitalize ${
+                        !isAssigned
+                          ? "badge-slate"
+                          : l.status === "contacted"
+                          ? "badge-success"
+                          : "badge-accent"
+                      }`}
+                    >
+                      {!isAssigned ? "unassigned" : l.status}
                     </span>
                   </div>
-                  <span
-                    className={`badge capitalize ${
-                      !isAssigned
-                        ? "badge-slate"
-                        : l.status === "contacted"
-                        ? "badge-success"
-                        : "badge-accent"
-                    }`}
-                  >
-                    {!isAssigned ? "unassigned" : l.status}
-                  </span>
-                </div>
 
-                <div>
-                  <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                    {l.name}
-                  </p>
-                  <p className="truncate text-[12px] text-slate-400">
-                    {l.outfit_type} · {l.price_estimate}
-                  </p>
-                </div>
+                  <div>
+                    <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                      {l.name}
+                    </p>
+                    <p className="truncate text-[12px] text-slate-400">
+                      {l.outfit_type} · {l.price_estimate}
+                    </p>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setViewingRef({ type: "lead", id: l.id })}
-                    className="btn-secondary flex-1 py-1.5 text-[12px]"
-                  >
-                    View Details
-                  </button>
-                  <AssignControl
-                    currentAssigneeId={assignedStaff?.id}
-                    staff={staff}
-                    onConfirm={(id) => handleAssignLead(l.id, id)}
-                  />
-                </div>
-              </ItemCard>
-            );
-          })}
-        </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewingRef({ type: "lead", id: l.id })}
+                      className="btn-secondary flex-1 py-1.5 text-[12px]"
+                    >
+                      View Details
+                    </button>
+                    <AssignControl
+                      currentAssigneeId={assignedStaff?.id}
+                      staff={staff}
+                      onConfirm={(id) => handleAssignLead(l.id, id)}
+                    />
+                  </div>
+                </ItemCard>
+              );
+            })}
+          </div>
+          <Pager
+            page={leadsPage}
+            totalPages={leadsTotalPages}
+            onPrev={() => setLeadsPage((p) => Math.max(1, p - 1))}
+            onNext={() => setLeadsPage((p) => Math.min(leadsTotalPages, p + 1))}
+          />
+        </>
       ) : (
         /* ── ORDERS ── */
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {orders.length === 0 && (
-            <p className="text-[13px] text-slate-400">No orders yet.</p>
-          )}
-          {orders.map((o) => {
-            const assignedStaff = staff.find((s) => s.id === o.task?.assignee?.id);
-            const isOrderAssigned = Boolean(o.task_id && assignedStaff);
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {orders.length === 0 && (
+              <p className="text-[13px] text-slate-400">No orders yet.</p>
+            )}
+            {orders.map((o) => {
+              const assignedStaff = staff.find((s) => s.id === o.task?.assignee?.id);
+              const isOrderAssigned = Boolean(o.task_id && assignedStaff);
 
-            return (
-              <ItemCard key={o.id}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <ShoppingBag size={12} className="text-emerald-500" />
-                    <span className="text-[11.5px] font-bold text-emerald-600">
-                      {o.order_number || "#"}
+              return (
+                <ItemCard key={o.id}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ShoppingBag size={12} className="text-emerald-500" />
+                      <span className="text-[11.5px] font-bold text-emerald-600">
+                        {o.order_number || "#"}
+                      </span>
+                    </div>
+                    <span
+                      className={`badge capitalize ${
+                        isOrderAssigned ? "badge-accent" : "badge-slate"
+                      }`}
+                    >
+                      {isOrderAssigned ? "Assigned" : "Unassigned"}
                     </span>
                   </div>
-                  <span
-                    className={`badge capitalize ${
-                      isOrderAssigned ? "badge-accent" : "badge-slate"
-                    }`}
-                  >
-                    {isOrderAssigned ? "Assigned" : "Unassigned"}
-                  </span>
-                </div>
 
-                <div>
-                  <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                    {o.customer_name}
-                  </p>
-                  <p className="truncate text-[12px] text-slate-400">
-                    {o.items} · {o.price}
-                  </p>
-                </div>
+                  <div>
+                    <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                      {o.customer_name}
+                    </p>
+                    <p className="truncate text-[12px] text-slate-400">
+                      {o.items} · {o.price}
+                    </p>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setViewingRef({ type: "order", id: o.id })}
-                    className="btn-secondary flex-1 py-1.5 text-[12px]"
-                  >
-                    View Details
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewingRef({ type: "order", id: o.id })}
+                      className="btn-secondary flex-1 py-1.5 text-[12px]"
+                    >
+                      View Details
+                    </button>
 
-                  {isOrderAssigned ? (
-                    <ReassignOrderControl
-                      assignedStaff={assignedStaff}
-                      staff={staff}
-                      onConfirm={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
-                    />
-                  ) : (
-                    <OrderAssignControl
-                      order={o}
-                      staff={staff}
-                      submitting={assigningOrderId === o.id}
-                      onConfirm={(payload) => handleAssignOrder(o, payload)}
-                    />
-                  )}
-                </div>
-              </ItemCard>
-            );
-          })}
-        </div>
+                    {isOrderAssigned ? (
+                      <ReassignOrderControl
+                        assignedStaff={assignedStaff}
+                        staff={staff}
+                        onConfirm={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
+                      />
+                    ) : (
+                      <OrderAssignControl
+                        order={o}
+                        staff={staff}
+                        submitting={assigningOrderId === o.id}
+                        onConfirm={(payload) => handleAssignOrder(o, payload)}
+                      />
+                    )}
+                  </div>
+                </ItemCard>
+              );
+            })}
+          </div>
+          <Pager
+            page={ordersPage}
+            totalPages={ordersTotalPages}
+            onPrev={() => setOrdersPage((p) => Math.max(1, p - 1))}
+            onNext={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
+          />
+        </>
       )}
 
       {/* Details modal */}

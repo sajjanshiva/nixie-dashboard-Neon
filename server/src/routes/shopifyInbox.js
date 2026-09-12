@@ -9,16 +9,33 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function parsePaging(req, defaultSize = 24) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || defaultSize));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
 // ── Orders ──────────────────────────────────────────────────────────
 
+// GET /orders?page=1&pageSize=24
+// Paginated + server-side ordered now (previously fetched every order
+// in one shot). Returns { orders, total, page, pageSize, totalPages }
+// instead of a plain array, same shape as GET /api/tasks.
 router.get("/orders", requireAdmin, async (req, res) => {
-  const { rows } = await pool.query(`
-    select o.*, t.id as task_id_full, t.assignee_id as task_assignee_id, p.name as task_assignee_name, t.client_phone as task_client_phone
-      from shopify_orders o
-      left join tasks t on t.id = o.task_id
-      left join profiles p on p.id = t.assignee_id
-     order by o.created_at desc
-  `);
+  const { page, pageSize, offset } = parsePaging(req);
+
+  const { rows: countRows } = await pool.query("select count(*)::int as count from shopify_orders");
+  const total = countRows[0].count;
+
+  const { rows } = await pool.query(
+    `select o.*, t.id as task_id_full, t.assignee_id as task_assignee_id, p.name as task_assignee_name, t.client_phone as task_client_phone
+       from shopify_orders o
+       left join tasks t on t.id = o.task_id
+       left join profiles p on p.id = t.assignee_id
+      order by o.created_at desc
+      limit $1 offset $2`,
+    [pageSize, offset]
+  );
   const orders = rows.map(({ task_id_full, task_assignee_id, task_assignee_name, task_client_phone, ...o }) => {
     const hasValidAssignee = Boolean(task_assignee_id && task_assignee_name);
     return {
@@ -32,7 +49,8 @@ router.get("/orders", requireAdmin, async (req, res) => {
         : null,
     };
   });
-  res.json(orders);
+
+  res.json({ orders, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 
 router.patch("/orders/:id/status", requireAdmin, async (req, res) => {
@@ -91,21 +109,33 @@ router.post("/orders/:id/assign", requireAdmin, async (req, res) => {
 
 // ── Leads ───────────────────────────────────────────────────────────
 
+// GET /leads?page=1&pageSize=24
+// Paginated + server-side ordered now (previously fetched every lead —
+// all leads for admin, or all of a staff member's leads — in one shot).
+// Returns { leads, total, page, pageSize, totalPages }. Staff scoping
+// (own leads only) is unchanged, it's just applied before counting too.
 router.get("/leads", async (req, res) => {
-  // Admin sees all leads; staff (My Leads page) only their own.
   const isAdmin = req.user.role === "admin";
-  const params = [];
-  let sql = `
-    select l.*, p.id as assignee_profile_id, p.name as assignee_name
-      from shopify_leads l left join profiles p on p.id = l.assignee_id
-  `;
-  if (!isAdmin) {
-    sql += " where l.assignee_id = $1";
-    params.push(req.user.id);
-  }
-  sql += " order by l.created_at desc";
+  const { page, pageSize, offset } = parsePaging(req);
 
-  const { rows } = await pool.query(sql, params);
+  const whereSql = isAdmin ? "" : "where l.assignee_id = $1";
+  const scopeParams = isAdmin ? [] : [req.user.id];
+
+  const { rows: countRows } = await pool.query(
+    `select count(*)::int as count from shopify_leads l ${whereSql}`,
+    scopeParams
+  );
+  const total = countRows[0].count;
+
+  const pageParams = [...scopeParams, pageSize, offset];
+  const { rows } = await pool.query(
+    `select l.*, p.id as assignee_profile_id, p.name as assignee_name
+       from shopify_leads l left join profiles p on p.id = l.assignee_id
+       ${whereSql}
+       order by l.created_at desc
+       limit $${pageParams.length - 1} offset $${pageParams.length}`,
+    pageParams
+  );
   const leads = rows.map(({ assignee_profile_id, assignee_name, ...l }) => {
     const hasValidAssignee = Boolean(assignee_profile_id && assignee_name);
     return {
@@ -115,7 +145,8 @@ router.get("/leads", async (req, res) => {
       status: hasValidAssignee ? l.status : "unassigned",
     };
   });
-  res.json(leads);
+
+  res.json({ leads, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 
 router.post("/leads/:id/contacted", async (req, res) => {
