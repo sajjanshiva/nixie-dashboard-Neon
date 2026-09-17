@@ -22,7 +22,7 @@ create table profiles (
   email text not null unique,
   role text not null check (role in ('admin', 'staff')),
   password_hash text,                          -- null until invite accepted
-  invite_token text unique,                     -- cleared once accepted
+  invite_token text unique,                     -- cleared once accepted 
   invite_expires_at timestamptz,
   reset_token text,                             -- single-use forgot-password token; cleared once used
   reset_token_expires_at timestamptz,           -- 1 hour from request
