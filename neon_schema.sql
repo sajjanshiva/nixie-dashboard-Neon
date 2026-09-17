@@ -24,9 +24,13 @@ create table profiles (
   password_hash text,                          -- null until invite accepted
   invite_token text unique,                     -- cleared once accepted
   invite_expires_at timestamptz,
+  reset_token text,                             -- single-use forgot-password token; cleared once used
+  reset_token_expires_at timestamptz,           -- 1 hour from request
   activated_at timestamptz,                     -- set on FIRST check-in, not invite/password time
   created_at timestamptz not null default now()
 );
+create unique index if not exists profiles_reset_token_uidx
+  on profiles (reset_token) where reset_token is not null;
 
 -- ---------------------------------------------------------------------
 -- tasks

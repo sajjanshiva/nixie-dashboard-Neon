@@ -5,6 +5,7 @@ import http from "http";
 
 import { requireAuth } from "./middleware/auth.js";
 import { attachWebSocketServer } from "./lib/ws.js";
+import { ensurePasswordResetColumns } from "./lib/db.js";
 import authRoute from "./routes/auth.js";
 import messagesRoute from "./routes/messages.js";
 import notificationsRoute from "./routes/notifications.js";
@@ -22,9 +23,37 @@ import settingsRoute from "./routes/settings.js";
 import holidaysRoute from "./routes/holidays.js";
 import performanceRoute from "./routes/performance.js";
 
+// A rejected async route (or an idle pg client error) used to kill the
+// Node process. Render then serves an empty 502 for every request,
+// including ones that never touched the database.
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
+});
+
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173" }));
+function allowedCorsOrigins() {
+  const configured = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  return new Set([...configured, "http://localhost:5173", "http://127.0.0.1:5173"]);
+}
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Non-browser clients (curl, server-to-server) send no Origin.
+      if (!origin) return callback(null, true);
+      if (allowedCorsOrigins().has(origin.replace(/\/$/, ""))) return callback(null, true);
+      console.warn(`CORS blocked origin: ${origin}`);
+      return callback(null, false);
+    },
+  })
+);
 
 // Shopify + WhatsApp webhooks need the RAW request body (for signature
 // verification), so both are mounted BEFORE express.json() and only
@@ -75,5 +104,21 @@ app.use("/api/performance", requireAuth, performanceRoute);
 const server = http.createServer(app);
 attachWebSocketServer(server);
 
+// Express 4 does not catch rejected promises from async route handlers.
+// Without this, a thrown query error sends no response (and no CORS
+// headers), which the browser surfaces as "Failed to fetch".
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ message: "Something went wrong — try again" });
+});
+
 const port = process.env.PORT || 5000;
+
+try {
+  await ensurePasswordResetColumns();
+} catch (err) {
+  console.error("Failed to ensure password-reset columns:", err.message);
+}
+
 server.listen(port, () => console.log(`Nixie Dashboard server running on http://localhost:${port}`));

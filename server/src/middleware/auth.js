@@ -18,7 +18,12 @@ export async function requireAuth(req, res, next) {
     return res.status(401).json({ message: "Invalid or expired session" });
   }
 
-  const { rows } = await pool.query("select * from profiles where id = $1", [payload.sub]);
+  let rows;
+  try {
+    ({ rows } = await pool.query("select * from profiles where id = $1", [payload.sub]));
+  } catch (err) {
+    return next(err);
+  }
   const profile = rows[0];
   if (!profile) return res.status(401).json({ message: "No profile found for this user" });
   if (!profile.password_hash) return res.status(401).json({ message: "Account not yet activated" });
