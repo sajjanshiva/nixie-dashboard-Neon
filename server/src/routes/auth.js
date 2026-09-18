@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pool, ensurePasswordResetColumns } from "../lib/db.js";
+import { pool } from "../lib/db.js";
 import { verifyPassword, hashPassword, signSessionToken, generateInviteToken } from "../lib/auth.js";
 import { sendResetEmail } from "../lib/mailer.js";
 
@@ -93,7 +93,6 @@ router.post("/forgot-password", wrap(async (req, res) => {
   if (!email) return res.status(400).json({ message: "Email is required" });
 
   try {
-    await ensurePasswordResetColumns();
     const { rows } = await pool.query(
       "select id, password_hash from profiles where email = $1",
       [email]

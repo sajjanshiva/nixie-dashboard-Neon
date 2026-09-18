@@ -58,17 +58,28 @@ export async function query(text, params) {
   return pool.query(text, params);
 }
 
-// Forgot-password was added after the original schema, so live databases
-// may not have these columns yet. Idempotent — safe to run on every boot.
+// Forgot-password needs reset_token columns (see neon_schema.sql).
+// The Render DATABASE_URL role is often not the table owner, so ALTER
+// TABLE / CREATE INDEX fail with 42501 even when the columns already
+// exist. Only probe; never run DDL from the app.
+let resetColumnsReady = false;
+
 export async function ensurePasswordResetColumns() {
-  await pool.query(`
-    alter table profiles
-      add column if not exists reset_token text,
-      add column if not exists reset_token_expires_at timestamptz
-  `);
-  await pool.query(`
-    create unique index if not exists profiles_reset_token_uidx
-      on profiles (reset_token)
-      where reset_token is not null
-  `);
+  if (resetColumnsReady) return true;
+  try {
+    await pool.query("select reset_token, reset_token_expires_at from profiles limit 0");
+    resetColumnsReady = true;
+    return true;
+  } catch (err) {
+    if (err.code === "42703") {
+      console.error(
+        "profiles is missing reset_token / reset_token_expires_at. Run this in Neon as the table owner:\n" +
+          "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS reset_token text;\n" +
+          "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS reset_token_expires_at timestamptz;\n" +
+          "CREATE UNIQUE INDEX IF NOT EXISTS profiles_reset_token_uidx ON profiles (reset_token) WHERE reset_token IS NOT NULL;"
+      );
+      return false;
+    }
+    throw err;
+  }
 }
