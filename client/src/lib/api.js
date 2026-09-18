@@ -9,75 +9,80 @@ import { istDateStr } from "./istDate.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
+async function readBody(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 async function apiPost(path, body, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
+  const data = await readBody(res);
+  if (!res.ok) throw new Error(data.message || `Request failed: ${res.status}`);
+  return data;
 }
 
 async function apiGet(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
+  const data = await readBody(res);
+  if (!res.ok) throw new Error(data.message || `Request failed: ${res.status}`);
+  return data;
 }
 
 async function apiPatch(path, body, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
+  const data = await readBody(res);
+  if (!res.ok) throw new Error(data.message || `Request failed: ${res.status}`);
+  return data;
 }
 
 async function apiPut(path, body, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
+  const data = await readBody(res);
+  if (!res.ok) throw new Error(data.message || `Request failed: ${res.status}`);
+  return data;
 }
 
 async function apiDelete(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
+    cache: "no-store",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
+  const data = await readBody(res);
+  if (!res.ok) throw new Error(data.message || `Request failed: ${res.status}`);
+  return data;
 }
 
 // Reads the session token our own AuthContext saves to localStorage.

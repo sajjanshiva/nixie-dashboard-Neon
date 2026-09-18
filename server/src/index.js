@@ -64,6 +64,15 @@ app.use("/webhooks/whatsapp", express.raw({ type: "application/json" }), whatsap
 // Everything else uses normal JSON parsing.
 app.use(express.json());
 
+// Auth GETs are cross-origin from Vercel. Express ETags turn repeat
+// visits into 304s with an empty body; fetch then fails to parse JSON
+// and Shopify Inbox / Team render blank. Never cache API responses.
+app.disable("etag");
+app.use("/api", (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 // Login + invite-accept are public — no session exists yet at this point.

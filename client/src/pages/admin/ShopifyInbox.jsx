@@ -274,18 +274,29 @@ export default function ShopifyInbox() {
 
   // Team list — fetched once.
   useEffect(() => {
-    getTeamMembers().then((m) => {
-      setStaff(m.filter((x) => x.role === "staff" && !x.pending && x.name));
-    });
+    getTeamMembers()
+      .then((m) => {
+        const list = Array.isArray(m) ? m : [];
+        setStaff(list.filter((x) => x.role === "staff" && !x.pending && x.name));
+      })
+      .catch((err) => {
+        console.error(err);
+        setStaff([]);
+      });
   }, []);
 
   function loadLeads(page) {
     setLoadingLeads(true);
     return getShopifyLeads({ page, pageSize: PAGE_SIZE })
       .then((data) => {
-        setLeads(data.leads || []);
-        setLeadsTotal(data.total || 0);
-        setLeadsTotalPages(data.totalPages || 1);
+        setLeads(data?.leads || []);
+        setLeadsTotal(data?.total || 0);
+        setLeadsTotalPages(data?.totalPages || 1);
+      })
+      .catch((err) => {
+        console.error(err);
+        toast.error(err.message || "Failed to load leads");
+        setLeads([]);
       })
       .finally(() => setLoadingLeads(false));
   }
@@ -294,9 +305,14 @@ export default function ShopifyInbox() {
     setLoadingOrders(true);
     return getShopifyOrders({ page, pageSize: PAGE_SIZE })
       .then((data) => {
-        setOrders(data.orders || []);
-        setOrdersTotal(data.total || 0);
-        setOrdersTotalPages(data.totalPages || 1);
+        setOrders(data?.orders || []);
+        setOrdersTotal(data?.total || 0);
+        setOrdersTotalPages(data?.totalPages || 1);
+      })
+      .catch((err) => {
+        console.error(err);
+        toast.error(err.message || "Failed to load orders");
+        setOrders([]);
       })
       .finally(() => setLoadingOrders(false));
   }
@@ -437,7 +453,12 @@ export default function ShopifyInbox() {
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {leads.length === 0 && (
-              <p className="text-[13px] text-slate-400">No leads yet.</p>
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center dark:border-white/10">
+                <p className="text-[14px] font-semibold text-slate-700 dark:text-slate-200">No leads yet</p>
+                <p className="mt-1 text-[12.5px] text-slate-400">
+                  New leads appear here when Shopify sends a draft-order webhook.
+                </p>
+              </div>
             )}
             {leads.map((l) => {
               const assignedStaff = staff.find((s) => s.id === (l.assignee_id || l.assignee?.id));
@@ -503,7 +524,12 @@ export default function ShopifyInbox() {
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {orders.length === 0 && (
-              <p className="text-[13px] text-slate-400">No orders yet.</p>
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center dark:border-white/10">
+                <p className="text-[14px] font-semibold text-slate-700 dark:text-slate-200">No orders yet</p>
+                <p className="mt-1 text-[12.5px] text-slate-400">
+                  New paid orders appear here when Shopify sends an orders-paid webhook.
+                </p>
+              </div>
             )}
             {orders.map((o) => {
               const assignedStaff = staff.find((s) => s.id === o.task?.assignee?.id);

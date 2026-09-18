@@ -15,6 +15,7 @@ const TOKEN_KEY = "nixie_dashboard_token";
 async function apiPost(path, body, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -28,6 +29,7 @@ async function apiPost(path, body, token) {
 
 async function apiGet(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   const data = await res.json().catch(() => ({}));
