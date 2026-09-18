@@ -206,6 +206,11 @@ export async function assignLead(leadId, assigneeId) {
   return apiPost(`/api/shopify-inbox/leads/${leadId}/assign`, { assigneeId }, token);
 }
 
+export async function syncShopifyInbox() {
+  const token = await authToken();
+  return apiPost("/api/shopify-inbox/sync", {}, token);
+}
+
 // ---------------------------------------------------------------------
 // Messages (task conversation)
 // ---------------------------------------------------------------------

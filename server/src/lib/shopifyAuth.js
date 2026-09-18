@@ -72,3 +72,37 @@ export async function shopifyAdminFetch(path, options = {}) {
     }
     return res.json();
 }
+
+function nextLinkFromHeader(linkHeader) {
+    if (!linkHeader) return null;
+    for (const part of linkHeader.split(",")) {
+        const m = part.trim().match(/<([^>]+)>\s*;\s*rel="next"/);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+// Follows Shopify's Link: rel="next" pagination until every page is in.
+export async function shopifyAdminFetchPaginated(path, listKey) {
+    const token = await getShopifyAccessToken();
+    const domain = process.env.SHOPIFY_STORE_DOMAIN;
+    const version = process.env.SHOPIFY_API_VERSION || "2026-01";
+    let url = `https://${domain}/admin/api/${version}${path}`;
+    const all = [];
+    while (url) {
+        const res = await fetch(url, {
+            headers: {
+                "X-Shopify-Access-Token": token,
+                "Content-Type": "application/json",
+            },
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Shopify Admin API error: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        all.push(...(data[listKey] || []));
+        url = nextLinkFromHeader(res.headers.get("link"));
+    }
+    return all;
+}

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../lib/db.js";
 import { notifyUser, clearAssignmentNotifications } from "../lib/notify.js";
+import { syncShopifyInbox } from "../lib/shopifyImport.js";
 
 const router = Router();
 
@@ -186,6 +187,20 @@ router.post("/leads/:id/assign", requireAdmin, async (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// POST /api/shopify-inbox/sync  (admin only)
+// Imports existing Shopify draft orders (leads) and paid orders. Webhooks
+// never replay history, so anything created before the dashboard went live
+// has to be pulled via the Admin API.
+router.post("/sync", requireAdmin, async (req, res) => {
+  try {
+    const result = await syncShopifyInbox();
+    res.json(result);
+  } catch (err) {
+    console.error("Shopify sync failed:", err);
+    res.status(500).json({ message: err.message || "Shopify sync failed" });
+  }
 });
 
 export default router;

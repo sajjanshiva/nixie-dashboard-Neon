@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Check, X as XIcon, ShoppingBag, Tag, ChevronLeft, ChevronRight } from "lucide-react";
-import { getShopifyOrders, getShopifyLeads, assignLead, assignOrder, assignTask, getTeamMembers } from "../../lib/api.js";
+import { Check, X as XIcon, ShoppingBag, Tag, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { getShopifyOrders, getShopifyLeads, assignLead, assignOrder, assignTask, getTeamMembers, syncShopifyInbox } from "../../lib/api.js";
 import Modal from "../../components/Modal.jsx";
 import LeadDetails from "../../components/LeadDetails.jsx";
 import toast from "react-hot-toast";
@@ -262,6 +262,7 @@ export default function ShopifyInbox() {
   const [loadingLeads, setLoadingLeads] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [assigningOrderId, setAssigningOrderId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Independent pagination per tab — switching tabs doesn't reset the
   // other tab's page.
@@ -374,6 +375,27 @@ export default function ShopifyInbox() {
     }
   }
 
+  async function handleSyncFromShopify() {
+    setSyncing(true);
+    try {
+      const result = await syncShopifyInbox();
+      const leadN = result?.leads?.imported || 0;
+      const orderN = result?.orders?.imported || 0;
+      toast.success(
+        leadN + orderN === 0
+          ? "Already up to date with Shopify"
+          : `Imported ${leadN} lead${leadN === 1 ? "" : "s"} and ${orderN} order${orderN === 1 ? "" : "s"}`
+      );
+      setLeadsPage(1);
+      setOrdersPage(1);
+      await Promise.all([loadLeads(1), loadOrders(1)]);
+    } catch (err) {
+      toast.error(err.message || "Failed to sync from Shopify");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function handleAssignLead(leadId, assigneeId) {
     try {
       await assignLead(leadId, assigneeId || null);
@@ -412,9 +434,20 @@ export default function ShopifyInbox() {
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
-      <p className="mb-4 text-[12.5px] text-slate-400 dark:text-slate-500">
-        New orders and leads arrive automatically from Shopify.
-      </p>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-[12.5px] text-slate-400 dark:text-slate-500">
+          New orders and leads arrive automatically from Shopify. Use sync to import anything created before this dashboard went live.
+        </p>
+        <button
+          type="button"
+          onClick={handleSyncFromShopify}
+          disabled={syncing}
+          className="btn-secondary inline-flex shrink-0 items-center justify-center gap-1.5 px-3 py-1.5 text-[12.5px] disabled:opacity-50"
+        >
+          <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Syncing…" : "Sync from Shopify"}
+        </button>
+      </div>
 
       {/* Tabs — Leads first, Orders second */}
       <div className="mb-5 flex gap-1.5">
