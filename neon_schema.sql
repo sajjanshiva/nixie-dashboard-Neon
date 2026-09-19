@@ -21,6 +21,7 @@ create table profiles (
   name text,                                   -- null until invite accepted
   email text not null unique,
   role text not null check (role in ('admin', 'staff')),
+  title text,                                   -- admin-assigned display label (e.g. "Designer"); purely cosmetic, never used for permissions — role above still controls access
   password_hash text,                          -- null until invite accepted
   invite_token text unique,                     -- cleared once accepted 
   invite_expires_at timestamptz,
@@ -31,6 +32,18 @@ create table profiles (
 );
 create unique index if not exists profiles_reset_token_uidx
   on profiles (reset_token) where reset_token is not null;
+
+-- ---------------------------------------------------------------------
+-- custom_roles — admin-managed display titles (Designer, Tailor, ...).
+-- Purely a lookup list for the Settings UI + invite dropdown; profiles.title
+-- is plain text, not a foreign key, so renaming/removing an entry here
+-- never touches people who already have that title on their profile.
+-- ---------------------------------------------------------------------
+create table custom_roles (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
 
 -- ---------------------------------------------------------------------
 -- tasks

@@ -45,7 +45,7 @@ function MobileProfileMenu({ user, onLogout }) {
           {/* User info */}
           <div className="border-b border-slate-100 px-4 py-3 dark:border-white/6">
             <p className="truncate text-[13px] font-bold text-slate-900 dark:text-white">{user?.name}</p>
-            <p className="truncate text-[11px] capitalize text-slate-400">{user?.role}</p>
+            <p className="truncate text-[11px] capitalize text-slate-400">{user?.title || user?.role}</p>
           </div>
           {/* Dark mode toggle */}
           <button
@@ -117,7 +117,7 @@ export default function Layout({ navItems, title, children }) {
               <Avatar name={user?.name || "?"} className="h-8 w-8 text-[11px] shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[12.5px] font-semibold text-slate-800 dark:text-slate-100">{user?.name}</p>
-                <p className="text-[10.5px] capitalize text-slate-400 dark:text-slate-500">{user?.role}</p>
+                <p className="text-[10.5px] capitalize text-slate-400 dark:text-slate-500">{user?.title || user?.role}</p>
               </div>
               <button onClick={handleLogout} className="text-slate-400 hover:text-danger transition" aria-label="Log out">
                 <LogOut size={15} />

@@ -35,7 +35,7 @@ router.post("/login", wrap(async (req, res) => {
 // name/password form.
 router.get("/invite/:token", wrap(async (req, res) => {
   const { rows } = await pool.query(
-    "select email, role, invite_expires_at from profiles where invite_token = $1 and password_hash is null",
+    "select email, role, title, invite_expires_at from profiles where invite_token = $1 and password_hash is null",
     [req.params.token]
   );
   const invite = rows[0];
@@ -43,7 +43,7 @@ router.get("/invite/:token", wrap(async (req, res) => {
   if (new Date(invite.invite_expires_at) < new Date()) {
     return res.status(410).json({ message: "This invite link has expired — ask an admin to remove and re-add you" });
   }
-  res.json({ email: invite.email, role: invite.role });
+  res.json({ email: invite.email, role: invite.role, title: invite.title });
 }));
 
 // POST /api/auth/accept-invite  (public — no login required)
@@ -75,7 +75,7 @@ router.post("/accept-invite", wrap(async (req, res) => {
     `update profiles
        set name = $1, password_hash = $2, invite_token = null, invite_expires_at = null
        where id = $3
-       returning id, name, email, role`,
+       returning id, name, email, role, title`,
     [name, passwordHash, invite.id]
   );
 
@@ -166,7 +166,7 @@ router.post("/reset-password", wrap(async (req, res) => {
   );
 
   const sessionToken = signSessionToken(account.id);
-  res.json({ token: sessionToken, profile: { id: account.id, name: account.name, email: account.email, role: account.role } });
+  res.json({ token: sessionToken, profile: { id: account.id, name: account.name, email: account.email, role: account.role, title: account.title } });
 }));
 
 export default router;

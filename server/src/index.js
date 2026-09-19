@@ -22,6 +22,7 @@ import pushRoute from "./routes/push.js";
 import settingsRoute from "./routes/settings.js";
 import holidaysRoute from "./routes/holidays.js";
 import performanceRoute from "./routes/performance.js";
+import rolesRoute from "./routes/roles.js";
 
 // A rejected async route (or an idle pg client error) used to kill the
 // Node process. Render then serves an empty 502 for every request,
@@ -105,6 +106,7 @@ app.use("/api/push", requireAuth, pushRoute);
 app.use("/api/settings", requireAuth, settingsRoute);
 app.use("/api/holidays", requireAuth, holidaysRoute);
 app.use("/api/performance", requireAuth, performanceRoute);
+app.use("/api/roles", requireAuth, rolesRoute);
 
 // Wrapping Express in a plain http.Server (instead of just app.listen)
 // so the WebSocket server can attach to the same port and handle the

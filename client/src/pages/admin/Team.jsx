@@ -1,24 +1,42 @@
 import React, { useEffect, useState } from "react";
 import { UserPlus, ClipboardPlus, X, Mail, Clock, Trash2 } from "lucide-react";
-import { getTeamMembers, inviteTeamMember, cancelInvite, createTask } from "../../lib/api.js";
+import { getTeamMembers, inviteTeamMember, cancelInvite, createTask, getCustomRoles } from "../../lib/api.js";
 import Avatar from "../../components/Avatar.jsx";
 import Modal from "../../components/Modal.jsx";
 
 // Replaces the old AddMemberForm (name + email + password). Admin no
-// longer sets a password or name directly — just email + role, and an
-// invite email goes out with a link for the person to set their own
-// name and password. As decided, the profile row (and this list) shows
-// them immediately as "pending" rather than waiting for them to accept.
+// longer sets a password or name directly — just email + role (+ an
+// optional title), and an invite email goes out with a link for the
+// person to set their own name and password. As decided, the profile
+// row (and this list) shows them immediately as "pending" rather than
+// waiting for them to accept.
+//
+// Two dropdowns: "Access level" (Admin/Staff — the real permission,
+// unchanged) and "Role" (an optional cosmetic title, admin-managed in
+// Settings). The Role dropdown only makes sense for Staff — Admin is
+// already a fixed, singular role — so it's hidden whenever Access level
+// is Admin, and resets to blank so a stale pick never gets sent.
 function InviteMemberForm({ onDone }) {
-  const [form, setForm] = useState({ email: "", role: "staff" });
+  const [form, setForm] = useState({ email: "", role: "staff", title: "" });
+  const [customRoles, setCustomRoles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    getCustomRoles()
+      .then(setCustomRoles)
+      .catch((err) => console.warn("Could not load custom roles:", err));
+  }, []);
+
+  function handleAccessChange(role) {
+    setForm((f) => ({ ...f, role, title: role === "admin" ? "" : f.title }));
+  }
 
   async function submit() {
     setSaving(true);
     setError("");
     try {
-      await inviteTeamMember(form);
+      await inviteTeamMember({ email: form.email, role: form.role, title: form.role === "staff" ? (form.title || null) : null });
       onDone();
     } catch (e) {
       setError(e.message);
@@ -32,10 +50,30 @@ function InviteMemberForm({ onDone }) {
       <h3 className="mb-4 text-[15px] font-bold text-slate-900 dark:text-white">Invite Team Member</h3>
       <div className="space-y-3">
         <input placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input" />
-        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input">
-          <option value="staff">Employee</option>
-          <option value="admin">Admin</option>
-        </select>
+
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-slate-400">Access level</label>
+          <select value={form.role} onChange={(e) => handleAccessChange(e.target.value)} className="input">
+            <option value="staff">Staff</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+
+        {form.role === "staff" && (
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-400">Role (optional)</label>
+            <select value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="input">
+              <option value="">No specific role</option>
+              {customRoles.map((r) => (
+                <option key={r.id} value={r.name}>{r.name}</option>
+              ))}
+            </select>
+            {customRoles.length === 0 && (
+              <p className="mt-1 text-[11px] text-slate-400">No custom roles yet — add some in Settings.</p>
+            )}
+          </div>
+        )}
+
         <p className="text-[11.5px] text-slate-400">
           They'll get an email with a link to set their own name and password. The link is valid for 7 days.
         </p>
@@ -117,7 +155,7 @@ function PendingCard({ m, onRemoved }) {
         <p className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
           <Clock size={11} /> Invite sent — hasn't set password yet
         </p>
-        <p className="text-[11px] font-medium capitalize text-accent-text">{m.role}</p>
+        <p className="text-[11px] font-medium capitalize text-accent-text">{m.title || m.role}</p>
       </div>
       <button
         onClick={remove}
@@ -178,7 +216,7 @@ export default function Team() {
                 <div className="min-w-0">
                   <p className="truncate text-[13.5px] font-semibold text-slate-800 dark:text-slate-100">{m.name}</p>
                   <p className="truncate text-[11.5px] text-slate-400">{m.email}</p>
-                  <p className="text-[11px] font-medium capitalize text-accent-text">{m.role}</p>
+                  <p className="text-[11px] font-medium capitalize text-accent-text">{m.title || m.role}</p>
                 </div>
               </div>
             ))}

@@ -4,8 +4,10 @@
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const BREVO_TIMEOUT_MS = 8_000;
 
-export async function sendInviteEmail({ to, role, inviteUrl }) {
-  const roleLabel = role === "admin" ? "an Admin" : "a Staff member";
+export async function sendInviteEmail({ to, role, title, inviteUrl }) {
+  const roleLabel = title
+    ? `${/^[aeiou]/i.test(title) ? "an" : "a"} ${title}`
+    : role === "admin" ? "an Admin" : "a Staff member";
 
   const res = await fetch(BREVO_API_URL, {
     method: "POST",

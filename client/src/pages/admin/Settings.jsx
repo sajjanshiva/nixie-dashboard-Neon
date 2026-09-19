@@ -1,7 +1,110 @@
 import React, { useEffect, useState } from "react";
-import { Clock, MapPin, Save } from "lucide-react";
-import { getSettings, updateSettings } from "../../lib/api.js";
+import { Clock, MapPin, Save, Tag, Plus, X as XIcon } from "lucide-react";
+import { getSettings, updateSettings, getCustomRoles, addCustomRole, deleteCustomRole } from "../../lib/api.js";
 import toast from "react-hot-toast";
+
+// ── Manage Roles — admin-managed display titles (Designer, Tailor, ...).
+//    Purely cosmetic labels shown alongside a person's name; Admin/Staff
+//    stay fixed and aren't listed here — they control actual access and
+//    aren't affected by anything in this section.
+function ManageRoles() {
+  const [roles, setRoles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [removingId, setRemovingId] = useState(null);
+
+  function reload() {
+    getCustomRoles()
+      .then(setRoles)
+      .catch((err) => console.warn("Could not load custom roles:", err))
+      .finally(() => setLoading(false));
+  }
+  useEffect(reload, []);
+
+  async function handleAdd() {
+    const name = newName.trim();
+    if (!name) return;
+    setAdding(true);
+    try {
+      await addCustomRole(name);
+      setNewName("");
+      reload();
+    } catch (e) {
+      toast.error(e.message || "Failed to add role");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleRemove(role) {
+    if (!confirm(`Remove "${role.name}"? Anyone already given this title keeps showing it — it just won't be pickable for new invites anymore.`)) return;
+    setRemovingId(role.id);
+    try {
+      await deleteCustomRole(role.id);
+      reload();
+    } catch (e) {
+      toast.error(e.message || "Failed to remove role");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  return (
+    <div className="card p-5 dark:bg-[#1A1D27]">
+      <div className="mb-4 flex items-center gap-2">
+        <Tag size={16} className="text-accent" />
+        <p className="text-[13.5px] font-bold text-slate-800 dark:text-slate-100">Manage Roles</p>
+      </div>
+      <p className="mb-4 text-[11.5px] text-slate-400">
+        Custom titles you can give staff when inviting them (e.g. "Designer", "Tailor") — shown throughout the
+        dashboard instead of the generic "Staff" label. Admin and Staff are fixed access levels and aren't listed
+        here.
+      </p>
+
+      {loading ? (
+        <p className="text-[12.5px] text-slate-400">Loading…</p>
+      ) : (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {roles.length === 0 && <p className="text-[12.5px] text-slate-400">No custom roles yet.</p>}
+          {roles.map((r) => (
+            <span
+              key={r.id}
+              className="flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 text-[12px] font-medium text-accent-text dark:bg-accent/15 dark:text-accent"
+            >
+              {r.name}
+              <button
+                onClick={() => handleRemove(r)}
+                disabled={removingId === r.id}
+                aria-label={`Remove ${r.name}`}
+                className="text-accent-text/60 hover:text-danger disabled:opacity-50 dark:text-accent/60"
+              >
+                <XIcon size={13} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          placeholder="New role name (e.g. Designer)"
+          className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={adding || !newName.trim()}
+          className="flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white disabled:opacity-50"
+        >
+          <Plus size={14} /> Add
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const [loading, setLoading] = useState(true);
@@ -168,6 +271,8 @@ export default function Settings() {
         <Save size={15} />
         {saving ? "Saving…" : "Save Settings"}
       </button>
+
+      <ManageRoles />
     </div>
   );
 }

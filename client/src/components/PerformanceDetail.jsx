@@ -390,7 +390,7 @@ export default function PerformanceDetail({ staffId, staffName, staffRole, isAdm
             ))}
           </div>
         ) : periodType === "Week" ? (
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+          <div className="grid grid-cols-7 gap-1.5 sm:mx-auto sm:max-w-[620px] sm:gap-2.5">
             {(data.calendar || []).map((day, i) => (
               <div key={i} className="flex flex-col items-stretch gap-1.5">
                 <span className="truncate text-center text-[9px] font-medium text-slate-400 sm:text-[10px]">

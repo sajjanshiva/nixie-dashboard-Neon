@@ -513,11 +513,27 @@ export async function getTeamMembers() {
 }
 
 // Replaces addTeamMember: admin no longer sets a name or password
-// directly — just email + role. The invited person sets their own name
-// and password via an emailed link (see AcceptInvite.jsx).
-export async function inviteTeamMember({ email, role }) {
+// directly — just email + role (+ optional title). The invited person
+// sets their own name and password via an emailed link (see AcceptInvite.jsx).
+export async function inviteTeamMember({ email, role, title }) {
   const token = await authToken();
-  return apiPost("/api/team/invite", { email, role }, token);
+  return apiPost("/api/team/invite", { email, role, title }, token);
+}
+
+// ── Custom roles (admin-managed display titles — Settings + invite dropdown) ──
+export async function getCustomRoles() {
+  const token = await authToken();
+  return apiGet("/api/roles", token);
+}
+
+export async function addCustomRole(name) {
+  const token = await authToken();
+  return apiPost("/api/roles", { name }, token);
+}
+
+export async function deleteCustomRole(roleId) {
+  const token = await authToken();
+  return apiDelete(`/api/roles/${roleId}`, token);
 }
 
 // Cancels a pending (not-yet-accepted) invite. Re-inviting the same
