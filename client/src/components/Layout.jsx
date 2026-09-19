@@ -169,9 +169,11 @@ export default function Layout({ navItems, title, children }) {
                   <item.icon size={navItems.length > 5 ? 18 : 20} />
                 </span>
                 <span className={`leading-none ${navItems.length > 5 ? "text-[9px]" : "text-[10px]"} font-medium mt-0.5`}>
-                  {/* Shorten long labels on mobile when 6 items */}
+                  {/* Shorten long labels on mobile when 6+ items, so every
+                      label stays one line — a 2-line label shifts the whole
+                      centered icon+label block relative to its neighbors */}
                   {navItems.length > 5
-                    ? item.label.replace("Reimbursements", "Reimburse").replace("Performance", "Perform")
+                    ? item.label.replace("Reimbursements", "Reimburse").replace("Performance", "Perform").replace("Shopify Inbox", "Inbox")
                     : item.label}
                 </span>
                 {item.badge > 0 && (

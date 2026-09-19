@@ -390,10 +390,10 @@ export default function PerformanceDetail({ staffId, staffName, staffRole, isAdm
             ))}
           </div>
         ) : periodType === "Week" ? (
-          <div className="mx-auto grid grid-cols-[repeat(7,2.875rem)] justify-center gap-2.5">
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
             {(data.calendar || []).map((day, i) => (
               <div key={i} className="flex flex-col items-stretch gap-1.5">
-                <span className="text-center text-[10px] font-medium text-slate-400">
+                <span className="truncate text-center text-[9px] font-medium text-slate-400 sm:text-[10px]">
                   {new Date(`${day.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short" })}
                 </span>
                 <DayCell day={day} onClick={openDay} />

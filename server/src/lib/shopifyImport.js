@@ -37,33 +37,47 @@ export async function upsertLeadFromDraft(draft, { notify = false } = {}) {
     if (existing[0]) return { lead: existing[0], created: false };
   }
 
-  const { rows } = await pool.query(
-    `insert into shopify_leads
-       (lead_number, name, phone, email, address, city, state, pincode, outfit_type, primary_fabric, secondary_fabrics, price_estimate, image_url, status, created_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'unassigned', coalesce($14::timestamptz, now()))
-     returning *`,
-    [
-      leadNumber,
-      map["Name"] || null,
-      map["Phone"] || null,
-      map["Email"] || null,
-      map["Address"] || null,
-      map["City"] || null,
-      map["State"] || null,
-      map["Pincode"] || null,
-      map["Outfit Type"] || lineItem.title || null,
-      map["Primary Fabric"] || null,
-      secondaryFabrics,
-      lineItem.price || draft.total_price || null,
-      map["Main Outfit Image"] || null,
-      draft.created_at || null,
-    ]
-  );
+  try {
+    const { rows } = await pool.query(
+      `insert into shopify_leads
+         (lead_number, name, phone, email, address, city, state, pincode, outfit_type, primary_fabric, secondary_fabrics, price_estimate, image_url, status, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'unassigned', coalesce($14::timestamptz, now()))
+       returning *`,
+      [
+        leadNumber,
+        map["Name"] || null,
+        map["Phone"] || null,
+        map["Email"] || null,
+        map["Address"] || null,
+        map["City"] || null,
+        map["State"] || null,
+        map["Pincode"] || null,
+        map["Outfit Type"] || lineItem.title || null,
+        map["Primary Fabric"] || null,
+        secondaryFabrics,
+        lineItem.price || draft.total_price || null,
+        map["Main Outfit Image"] || null,
+        draft.created_at || null,
+      ]
+    );
 
-  if (notify) {
-    await notifyAllAdmins(`New lead: ${rows[0].name || "Unknown"}`, "/admin/shopify-inbox");
+    if (notify) {
+      await notifyAllAdmins(`New lead: ${rows[0].name || "Unknown"}`, "/admin/shopify-inbox");
+    }
+    return { lead: rows[0], created: true };
+  } catch (err) {
+    if (err.code === "23505") {
+      // A near-simultaneous webhook retry inserted this lead_number between
+      // our check above and this insert (same race upsertPaidOrder guards
+      // against) — fetch what's there now instead of 500ing back to Shopify.
+      const { rows: existing } = await pool.query(
+        "select * from shopify_leads where lead_number = $1",
+        [leadNumber]
+      );
+      return { lead: existing[0] || null, created: false };
+    }
+    throw err;
   }
-  return { lead: rows[0], created: true };
 }
 
 export async function upsertPaidOrder(order, { notify = false } = {}) {

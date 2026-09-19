@@ -67,7 +67,7 @@ function AssignControl({ currentAssigneeId, staff, onConfirm }) {
       </button>
       <button
         onClick={() => setOpen(false)}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
         aria-label="Cancel"
       >
         <XIcon size={14} />
@@ -134,7 +134,7 @@ function OrderAssignControl({ order, staff, onConfirm, submitting }) {
         </button>
         <button
           onClick={() => setOpen(false)}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
           aria-label="Cancel"
         >
           <XIcon size={14} />
@@ -181,7 +181,7 @@ function ReassignOrderControl({ assignedStaff, staff, onConfirm }) {
         </button>
         <button
           onClick={() => { setPending(null); setEditing(false); }}
-          className="flex h-6 w-6 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
+          className="flex h-6 w-6 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
           aria-label="Cancel"
         >
           <XIcon size={13} />
@@ -632,7 +632,7 @@ export default function ShopifyInbox() {
       )}
 
       {/* Details modal */}
-      <Modal open={!!viewing} onClose={() => setViewingRef(null)}>
+      <Modal open={!!viewing} onClose={() => setViewingRef(null)} wide={viewingRef?.type === "lead" && !!viewing?.image_url}>
         {viewing && (
           <div className="p-5">
             <h3 className="mb-4 text-[15px] font-bold text-slate-900 dark:text-white">

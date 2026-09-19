@@ -94,9 +94,9 @@ export default function MyLeads() {
                   <button
                     onClick={() => handleMarkContacted(l.id)}
                     disabled={marking}
-                    className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-accent-dark disabled:opacity-50"
                   >
-                    <Check size={12} /> Contacted
+                    <Check size={12} /> Mark as Contacted
                   </button>
                 )}
               </div>
@@ -117,7 +117,7 @@ export default function MyLeads() {
         </div>
       )}
 
-      <Modal open={!!viewing} onClose={() => setViewingId(null)}>
+      <Modal open={!!viewing} onClose={() => setViewingId(null)} wide={!!viewing?.image_url}>
         {viewing && (
           <div className="p-5">
             <h3 className="mb-4 text-[15px] font-bold text-slate-900 dark:text-white">Lead Details</h3>
@@ -126,9 +126,9 @@ export default function MyLeads() {
               <button
                 onClick={() => handleMarkContacted(viewing.id)}
                 disabled={marking}
-                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2.5 text-[13px] font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2.5 text-[13px] font-medium text-white hover:bg-accent-dark disabled:opacity-50"
               >
-                <Check size={14} /> Mark Contacted
+                <Check size={14} /> Mark as Contacted
               </button>
             )}
           </div>

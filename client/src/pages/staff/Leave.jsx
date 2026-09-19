@@ -5,13 +5,11 @@ import { getLeaves, submitLeave } from "../../lib/api.js";
 import StatusPill from "../../components/StatusPill.jsx";
 import Modal from "../../components/Modal.jsx";
 
-const REASON_CATEGORIES = ["Personal", "Health", "Travel", "Family", "Other"];
-
 export default function Leave() {
   const { user } = useAuth();
   const [leaves, setLeaves] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ type: "Casual", reasonCategory: REASON_CATEGORIES[0], reason: "", from: "", to: "" });
+  const [form, setForm] = useState({ type: "Casual", reason: "", from: "", to: "" });
   const [saving, setSaving] = useState(false);
 
   function reload() {
@@ -25,13 +23,12 @@ export default function Leave() {
       await submitLeave({
         staff_id: user.id,
         type: form.type,
-        reason_category: form.reasonCategory,
         reason: form.reason,
         date_from: form.from,
         date_to: form.to,
       });
       setOpen(false);
-      setForm({ type: "Casual", reasonCategory: REASON_CATEGORIES[0], reason: "", from: "", to: "" });
+      setForm({ type: "Casual", reason: "", from: "", to: "" });
       reload();
     } finally {
       setSaving(false);
@@ -76,9 +73,6 @@ export default function Leave() {
           <div className="space-y-3">
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="input">
               <option>Casual</option><option>Sick</option><option>Earned</option>
-            </select>
-            <select value={form.reasonCategory} onChange={(e) => setForm({ ...form, reasonCategory: e.target.value })} className="input">
-              {REASON_CATEGORIES.map((r) => <option key={r}>{r}</option>)}
             </select>
             <div className="grid grid-cols-2 gap-2">
               <input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} className="input" />

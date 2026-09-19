@@ -541,21 +541,6 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
         )}
       </div>
 
-      {/* ── Mobile: Mark Complete / Undo Complete strip (below chat) ── */}
-      <div className="shrink-0 border-t border-slate-100 px-3 py-2 dark:border-white/6 sm:hidden">
-        {isComplete ? (
-          <button onClick={handleUndoComplete}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-50 py-2.5 text-[13px] font-bold text-emerald-600 hover:bg-emerald-100 transition dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50">
-            <CheckCircle2 size={15} /> Completed · Undo
-          </button>
-        ) : (
-          <button onClick={handleComplete}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-[13px] font-bold text-white hover:bg-emerald-600 transition">
-            <CheckCircle2 size={15} /> Mark Complete
-          </button>
-        )}
-      </div>
-
       {/* ── Composer ─────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-3 dark:border-white/6 dark:bg-[#13151F]">
         <div className="mb-2 flex flex-wrap gap-1.5">

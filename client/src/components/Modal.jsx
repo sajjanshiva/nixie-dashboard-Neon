@@ -6,7 +6,7 @@ export default function Modal({ open, onClose, children, wide = false }) {
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 sm:items-center" onClick={onClose}>
       <div
-        className={`relative h-[92vh] w-full overflow-hidden rounded-t-2xl bg-white shadow-xl dark:bg-[#1A1D27] sm:h-[85vh] sm:rounded-2xl ${
+        className={`relative h-[92vh] w-full overflow-hidden rounded-t-2xl bg-white shadow-xl animate-slide-in-up dark:bg-[#1A1D27] sm:h-[85vh] sm:animate-fade-in sm:rounded-2xl ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}
