@@ -101,6 +101,16 @@ router.post("/check-in", async (req, res) => {
     return res.status(403).json({ message: `Check-in opens at ${officeStartTime} — you're a bit early.` });
   }
 
+  // Symmetric upper bound — blocks any check-in (first session of the
+  // day, or a later one) once office_end_time has passed. Previously
+  // only a check-in AFTER an already-recorded post-end checkout was
+  // blocked (the dayEnded check above); this closes the gap for every
+  // other case — a first check-in that's simply very late, or a second
+  // session started after hours following an on-time checkout.
+  if (new Date() > officeEndToday) {
+    return res.status(403).json({ message: `Check-in closed at ${officeEndTime} — check in again tomorrow.` });
+  }
+
   if (workMode === "office") {
     const officeLocation = await getSetting("office_location");
     // FIX #5: previously, a missing office_location setting would fall
