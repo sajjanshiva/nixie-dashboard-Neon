@@ -22,7 +22,7 @@ export async function notifyUser(userId, text, link, { relatedTaskId = null, rel
 }
 
 export async function notifyAllAdmins(text, link) {
-  const { rows } = await pool.query("select id from profiles where role = 'admin'");
+  const { rows } = await pool.query("select id from profiles where role = 'admin' and password_hash is not null");
   await Promise.all(rows.map((admin) => notifyUser(admin.id, text, link)));
 }
 

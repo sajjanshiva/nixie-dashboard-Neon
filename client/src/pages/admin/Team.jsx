@@ -3,6 +3,7 @@ import { UserPlus, ClipboardPlus, X, Mail, Clock, Trash2 } from "lucide-react";
 import { getTeamMembers, inviteTeamMember, cancelInvite, createTask, getCustomRoles } from "../../lib/api.js";
 import Avatar from "../../components/Avatar.jsx";
 import Modal from "../../components/Modal.jsx";
+import toast from "react-hot-toast";
 
 // Replaces the old AddMemberForm (name + email + password). Admin no
 // longer sets a password or name directly — just email + role (+ an
@@ -140,6 +141,8 @@ function PendingCard({ m, onRemoved }) {
     try {
       await cancelInvite(m.id);
       onRemoved();
+    } catch (e) {
+      toast.error(e.message || "Failed to cancel invite");
     } finally {
       setRemoving(false);
     }
@@ -174,7 +177,9 @@ export default function Team() {
   const [modal, setModal] = useState(null); // "member" | "task" | null
 
   function reload() {
-    getTeamMembers().then(setMembers);
+    getTeamMembers()
+      .then(setMembers)
+      .catch((err) => toast.error(err.message || "Failed to load team members"));
   }
   useEffect(reload, []);
 
