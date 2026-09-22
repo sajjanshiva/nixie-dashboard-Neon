@@ -284,7 +284,7 @@ router.get("/summary", async (req, res) => {
   }
 
   try {
-    const { rows: members } = await pool.query("select id, name, title from profiles where role = 'staff'");
+    const { rows: members } = await pool.query("select id, name, role from profiles where role != 'admin'");
     const results = await Promise.all(
       (members || []).map(async (m) => {
         try {

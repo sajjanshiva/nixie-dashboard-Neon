@@ -7,8 +7,8 @@ import { sendInviteEmail } from "../lib/mailer.js";
 const router = Router();
 
 // Express 4 doesn't forward async rejections to the error handler on its
-// own (same pattern auth.js and roles.js use) — without this, a thrown DB
-// error here hangs the request forever instead of returning an error.
+// own — without this, a thrown DB error hangs the request forever
+// instead of returning an error (same pattern auth.js/roles.js use).
 const wrap = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
 };
@@ -19,7 +19,7 @@ const wrap = (handler) => (req, res, next) => {
 // pending-at-top, active-below as decided.
 router.get("/", requireRole("admin"), wrap(async (req, res) => {
   const { rows } = await pool.query(
-    `select id, name, email, role, title, created_at,
+    `select id, name, email, role, created_at,
             (password_hash is null) as pending
        from profiles
        order by pending desc, created_at desc`
@@ -28,30 +28,20 @@ router.get("/", requireRole("admin"), wrap(async (req, res) => {
 }));
 
 // POST /api/team/invite  (admin only)
-// Body: { email, role, title? }
-// `role` is the real access level (admin/staff — required, unchanged).
-// `title` is an optional cosmetic label ("Designer", "Tailor", ...) picked
-// from the admin-managed custom_roles list; only meaningful for staff —
-// silently ignored/cleared for an admin invite, since admins don't need one.
-// Creates the profile row immediately (so it shows in the Team tab right
-// away, as decided) with no name/password yet, generates a 7-day invite
-// token, and emails the invite link. Replaces the old add-member flow
-// entirely — admin no longer sets name or password directly.
+// Body: { email, role }
+// `role` is a single value — "admin", "staff", or any name from the
+// admin-managed custom_roles list (e.g. "Designer"). Whatever's picked
+// becomes the real, literal value of profiles.role: a custom role gets
+// exactly the same access as "staff" (every permission check in this
+// app is written as "not admin", never "exactly staff"), and is shown
+// as-is everywhere the role/title used to be displayed.
 router.post("/invite", requireRole("admin"), wrap(async (req, res) => {
   const { email, role } = req.body || {};
-  let { title } = req.body || {};
   if (!email || !role) return res.status(400).json({ message: "email and role are required" });
-  if (!["admin", "staff"].includes(role)) return res.status(400).json({ message: "role must be admin or staff" });
 
-  // Admin is a fixed access level with no custom label — never store a
-  // title against an admin account even if one was somehow sent.
-  if (role === "admin") {
-    title = null;
-  } else if (title) {
-    const { rows: known } = await pool.query("select 1 from custom_roles where name = $1", [title]);
+  if (role !== "admin" && role !== "staff") {
+    const { rows: known } = await pool.query("select 1 from custom_roles where name = $1", [role]);
     if (!known[0]) return res.status(400).json({ message: "That role isn't in the list — add it in Settings first" });
-  } else {
-    title = null;
   }
 
   const { rows: existing } = await pool.query("select id, password_hash from profiles where email = $1", [email]);
@@ -67,15 +57,15 @@ router.post("/invite", requireRole("admin"), wrap(async (req, res) => {
   const expiresAt = inviteExpiryDate();
 
   const { rows } = await pool.query(
-    `insert into profiles (email, role, title, invite_token, invite_expires_at)
-     values ($1, $2, $3, $4, $5)
-     returning id, email, role, title, created_at`,
-    [email, role, title, inviteToken, expiresAt]
+    `insert into profiles (email, role, invite_token, invite_expires_at)
+     values ($1, $2, $3, $4)
+     returning id, email, role, created_at`,
+    [email, role, inviteToken, expiresAt]
   );
 
   const inviteUrl = `${process.env.CLIENT_ORIGIN}/accept-invite/${inviteToken}`;
   try {
-    await sendInviteEmail({ to: email, role, title, inviteUrl });
+    await sendInviteEmail({ to: email, role, inviteUrl });
   } catch (err) {
     // The profile row is still created even if the email fails to send —
     // admin can see it's pending and use Remove+re-add to retry, since

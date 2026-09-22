@@ -45,9 +45,10 @@ router.post("/", requireRole("admin"), wrap(async (req, res) => {
 
 // DELETE /api/roles/:id  (admin only)
 // Removing a role here only removes it from the picker going forward —
-// profiles.title is plain text, not a foreign key, so anyone who already
-// has this title keeps showing it. It just can't be picked for new
-// invites anymore once it's gone from this list.
+// profiles.role is plain text, not a foreign key to this table, so
+// anyone who already has this role keeps it exactly as-is, fully
+// functional. It just can't be picked for new invites anymore once
+// it's gone from this list.
 router.delete("/:id", requireRole("admin"), wrap(async (req, res) => {
   await pool.query("delete from custom_roles where id = $1", [req.params.id]);
   res.json({ ok: true });

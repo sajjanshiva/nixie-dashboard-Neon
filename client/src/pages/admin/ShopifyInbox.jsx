@@ -278,7 +278,7 @@ export default function ShopifyInbox() {
     getTeamMembers()
       .then((m) => {
         const list = Array.isArray(m) ? m : [];
-        setStaff(list.filter((x) => x.role === "staff" && !x.pending && x.name));
+        setStaff(list.filter((x) => x.role !== "admin" && !x.pending && x.name));
       })
       .catch((err) => {
         console.error(err);

@@ -20,8 +20,8 @@ create table profiles (
   id uuid primary key default gen_random_uuid(),
   name text,                                   -- null until invite accepted
   email text not null unique,
-  role text not null check (role in ('admin', 'staff')),
-  title text,                                   -- admin-assigned display label (e.g. "Designer"); purely cosmetic, never used for permissions — role above still controls access
+  role text not null,                          -- 'admin', 'staff', or a name from custom_roles (see below) — validated at the app layer, not by a DB constraint, since the valid set changes as admin manages roles
+  title text,                                   -- deprecated, unused — kept only so old rows/queries referencing it don't break; role now holds the display name directly
   password_hash text,                          -- null until invite accepted
   invite_token text unique,                     -- cleared once accepted 
   invite_expires_at timestamptz,
@@ -34,10 +34,12 @@ create unique index if not exists profiles_reset_token_uidx
   on profiles (reset_token) where reset_token is not null;
 
 -- ---------------------------------------------------------------------
--- custom_roles — admin-managed display titles (Designer, Tailor, ...).
--- Purely a lookup list for the Settings UI + invite dropdown; profiles.title
--- is plain text, not a foreign key, so renaming/removing an entry here
--- never touches people who already have that title on their profile.
+-- custom_roles — admin-managed role names (Designer, Tailor, ...), used
+-- directly as the value of profiles.role for anyone given that role.
+-- This is the full source of truth for which role names are valid,
+-- alongside the two built-in ones (admin, staff) which are NOT rows
+-- here. Plain lookup list, not a foreign key — renaming/removing a row
+-- here never touches people who already have that value in profiles.role.
 -- ---------------------------------------------------------------------
 create table custom_roles (
   id uuid primary key default gen_random_uuid(),

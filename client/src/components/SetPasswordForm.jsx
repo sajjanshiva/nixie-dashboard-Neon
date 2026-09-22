@@ -4,7 +4,7 @@ import NixieLogo from "./NixieLogo.jsx";
 
 // mode: "invite" (shows Name field, subtitle mentions role) | "reset" (no
 // Name field, subtitle is just "reset your password")
-export default function SetPasswordForm({ mode, email, role, title, onSubmit, submitting, error, submitLabel }) {
+export default function SetPasswordForm({ mode, email, role, onSubmit, submitting, error, submitLabel }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,7 +40,7 @@ export default function SetPasswordForm({ mode, email, role, title, onSubmit, su
         </h1>
         <p className="mb-6 text-center text-[12.5px] text-slate-400">
           {isInvite ? (
-            <>Joining as <span className="font-semibold capitalize text-slate-600 dark:text-slate-300">{title || role}</span> — {email}</>
+            <>Joining as <span className="font-semibold capitalize text-slate-600 dark:text-slate-300">{role}</span> — {email}</>
           ) : (
             <>For <span className="font-semibold text-slate-600 dark:text-slate-300">{email}</span></>
           )}

@@ -57,7 +57,6 @@ export default function AcceptInvite() {
       mode="invite"
       email={invite.email}
       role={invite.role}
-      title={invite.title}
       onSubmit={handleSubmit}
       submitting={saving}
       error={error}

@@ -11,7 +11,7 @@ export default function MyPerformance() {
       <PerformanceDetail
         staffId={user.id}
         staffName={user.name}
-        staffRole={user.title || "staff"}
+        staffRole={user.role}
         isAdmin={false}
       />
     </div>

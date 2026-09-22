@@ -53,7 +53,7 @@ export default function Performance() {
   const [anchor, setAnchor]         = useState(new Date());
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
-  const [selected, setSelected]     = useState(null); // { id, name, title }
+  const [selected, setSelected]     = useState(null); // { id, name, role }
 
   const range = getRange(periodType, anchor);
   const todayStr = toDateStr(new Date());
@@ -92,7 +92,7 @@ export default function Performance() {
         <PerformanceDetail
           staffId={selected.id}
           staffName={selected.name}
-          staffRole={selected.title || "staff"}
+          staffRole={selected.role || "staff"}
           isAdmin
           onClose={() => setSelected(null)}
         />
@@ -166,7 +166,7 @@ export default function Performance() {
                 rows.map((r) => (
                   <tr
                     key={r.member.id}
-                    onClick={() => setSelected({ id: r.member.id, name: r.member.name, title: r.member.title })}
+                    onClick={() => setSelected({ id: r.member.id, name: r.member.name, role: r.member.role })}
                     className="cursor-pointer border-b border-slate-50 transition hover:bg-accent/5 dark:border-white/6 dark:hover:bg-accent/10"
                   >
                     <td className="px-5 py-3">

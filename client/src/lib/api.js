@@ -513,11 +513,11 @@ export async function getTeamMembers() {
 }
 
 // Replaces addTeamMember: admin no longer sets a name or password
-// directly — just email + role (+ optional title). The invited person
-// sets their own name and password via an emailed link (see AcceptInvite.jsx).
-export async function inviteTeamMember({ email, role, title }) {
+// directly — just email + role. The invited person sets their own name
+// and password via an emailed link (see AcceptInvite.jsx).
+export async function inviteTeamMember({ email, role }) {
   const token = await authToken();
-  return apiPost("/api/team/invite", { email, role, title }, token);
+  return apiPost("/api/team/invite", { email, role }, token);
 }
 
 // ── Custom roles (admin-managed display titles — Settings + invite dropdown) ──
