@@ -79,6 +79,13 @@ function RequestCard({ item, kind, onDecide }) {
               ? `${item.type} · ${item.date_from} → ${item.date_to}`
               : `${item.category} · ₹${item.amount}`}
           </p>
+          {kind === "reimburse" && (
+            <p className="text-[11px] text-slate-400">
+              {item.expense_date && `Expense: ${new Date(`${item.expense_date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`}
+              {item.expense_date && " · "}
+              Submitted: {new Date(item.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            </p>
+          )}
           {(item.reason || item.note) && (
             <p className="mt-1 text-[12.5px] text-slate-600 dark:text-slate-300">{item.reason || item.note}</p>
           )}

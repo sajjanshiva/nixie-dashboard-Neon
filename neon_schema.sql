@@ -155,6 +155,7 @@ create table reimbursements (
   amount numeric not null,
   note text,
   receipt_url text,
+  expense_date date,                           -- date the expense happened (staff-entered); distinct from created_at, which is submission time
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
   reject_reason text,
   created_at timestamptz not null default now()

@@ -62,13 +62,14 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { category, amount, note, receipt_url } = req.body || {};
+  const { category, amount, note, receipt_url, expense_date } = req.body || {};
   if (!category || amount == null) return res.status(400).json({ message: "category and amount are required" });
+  if (!expense_date) return res.status(400).json({ message: "expense_date is required" });
 
   await pool.query(
-    `insert into reimbursements (staff_id, category, amount, note, receipt_url)
-     values ($1, $2, $3, $4, $5)`,
-    [req.user.id, category, amount, note || null, receipt_url || null]
+    `insert into reimbursements (staff_id, category, amount, note, receipt_url, expense_date)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [req.user.id, category, amount, note || null, receipt_url || null, expense_date]
   );
   res.status(201).json({ ok: true });
 });
