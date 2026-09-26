@@ -4,6 +4,7 @@ import { useAuth } from "../../lib/AuthContext.jsx";
 import { getReimbursements, submitReimbursement, getImageKitAuthParams } from "../../lib/api.js";
 import StatusPill from "../../components/StatusPill.jsx";
 import Modal from "../../components/Modal.jsx";
+import ReceiptModal from "../../components/ReceiptModal.jsx";
 
 const IK_URL_ENDPOINT = import.meta.env.VITE_IMAGEKIT_URL_ENDPOINT;
 const IK_PUBLIC_KEY = import.meta.env.VITE_IMAGEKIT_PUBLIC_KEY;
@@ -30,6 +31,7 @@ export default function Reimbursements() {
   const [form, setForm] = useState({ category: "Travel", amount: "", note: "", expense_date: new Date().toISOString().slice(0, 10) });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [viewingReceipt, setViewingReceipt] = useState(null);
   const [error, setError] = useState("");
 
   function reload() {
@@ -87,7 +89,14 @@ export default function Reimbursements() {
                     Submitted: {new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                   <p className="text-[12px] text-slate-500 dark:text-slate-400">{r.note}</p>
-                  {r.receipt_url && <a href={r.receipt_url} target="_blank" rel="noreferrer" className="text-[11.5px] text-accent hover:underline">View receipt</a>}
+                  {r.receipt_url && (
+                    <button
+                      onClick={() => setViewingReceipt(r.receipt_url)}
+                      className="text-[11.5px] text-accent hover:underline"
+                    >
+                      View receipt
+                    </button>
+                  )}
                   {r.status === "rejected" && r.reject_reason && (
                     <p className="mt-1 text-[11.5px] text-rose-500 dark:text-rose-400">Reason: {r.reject_reason}</p>
                   )}
@@ -124,6 +133,8 @@ export default function Reimbursements() {
           </div>
         </div>
       </Modal>
+
+      <ReceiptModal url={viewingReceipt} onClose={() => setViewingReceipt(null)} />
     </div>
   );
 }

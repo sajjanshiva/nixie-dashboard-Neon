@@ -6,6 +6,7 @@ import {
 import {
   getLeaves, getReimbursements, decideLeave, decideReimbursement,
 } from "../../lib/api.js";
+import ReceiptModal from "../../components/ReceiptModal.jsx";
 
 const PAGE_SIZE = 18;
 
@@ -61,7 +62,7 @@ function RejectForm({ onConfirm, onCancel }) {
 }
 
 // ── Single request card ───────────────────────────────────────────────
-function RequestCard({ item, kind, onDecide }) {
+function RequestCard({ item, kind, onDecide, onViewReceipt }) {
   const [confirming, setConfirming] = useState(false); // true = "Confirm approve?" inline
   const [rejecting, setRejecting]   = useState(false); // true = show reject reason form
   const isPending = item.status === "pending";
@@ -88,6 +89,14 @@ function RequestCard({ item, kind, onDecide }) {
           )}
           {(item.reason || item.note) && (
             <p className="mt-1 text-[12.5px] text-slate-600 dark:text-slate-300">{item.reason || item.note}</p>
+          )}
+          {kind === "reimburse" && item.receipt_url && (
+            <button
+              onClick={() => onViewReceipt(item.receipt_url)}
+              className="mt-1 text-[11.5px] text-accent hover:underline"
+            >
+              View receipt
+            </button>
           )}
           {item.status === "rejected" && item.reject_reason && (
             <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-rose-500">
@@ -262,6 +271,7 @@ export default function Approvals() {
   // (pageSize:1, we only need `total` from each), same pattern as
   // AllTasks.jsx's filter-pill counts. Re-derived after any decide.
   const [refreshTick, setRefreshTick] = useState(0);
+  const [viewingReceipt, setViewingReceipt] = useState(null);
   useEffect(() => {
     Promise.all([
       getFn({ status: "pending", page: 1, pageSize: 1 }),
@@ -373,7 +383,7 @@ export default function Approvals() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {tab === "leaves"
               ? items.map((l) => <RequestCard key={l.id} item={l} kind="leave"     onDecide={handleDecideLeave} />)
-              : items.map((r) => <RequestCard key={r.id} item={r} kind="reimburse" onDecide={handleDecideReimburse} />)
+              : items.map((r) => <RequestCard key={r.id} item={r} kind="reimburse" onDecide={handleDecideReimburse} onViewReceipt={setViewingReceipt} />)
             }
           </div>
           <Pager
@@ -384,6 +394,8 @@ export default function Approvals() {
           />
         </>
       )}
+
+      <ReceiptModal url={viewingReceipt} onClose={() => setViewingReceipt(null)} />
     </div>
   );
 }
