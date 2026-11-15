@@ -18,8 +18,10 @@ const router = Router();
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const assigneeId = isAdmin ? req.query.assigneeId : req.user.id;
-  const status = req.query.status; // "In Progress" | "Complete" | undefined (= all)
+  const status = req.query.status; // "In Progress" | "Complete" | "On Hold" | undefined (= all)
   const unassignedOnly = req.query.unassigned === "true";
+  const month = req.query.month ? req.query.month.trim() : "";
+  const search = req.query.search ? req.query.search.trim() : "";
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 24));
   const offset = (page - 1) * pageSize;
@@ -29,6 +31,14 @@ router.get("/", async (req, res) => {
   if (assigneeId)     { params.push(assigneeId); where.push(`t.assignee_id = $${params.length}`); }
   if (status)         { params.push(status);     where.push(`t.status = $${params.length}`); }
   if (unassignedOnly) { where.push(`t.assignee_id is null`); }
+  if (month) {
+    params.push(`${month}%`);
+    where.push(`(to_char(t.created_at, 'YYYY-MM') like $${params.length} or t.due_date like $${params.length})`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    where.push(`(t.client_name ilike $${params.length} or t.client_phone ilike $${params.length} or t.title ilike $${params.length})`);
+  }
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
   const { rows: countRows } = await pool.query(`select count(*)::int as count from tasks t ${whereSql}`, params);
@@ -211,14 +221,12 @@ router.post("/:id/complete", async (req, res) => {
 });
 
 // POST /api/tasks/progress
-// Body: { taskId, progress }
-// Routed through the backend (rather than a direct Supabase update) so the
-// "client gets a WhatsApp update automatically" behavior fires from one
-// single place, instead of being duplicated across every place progress
-// might get changed.
+// Body: { taskId, progress, stage, status }
+// Updates task stage and progress, sets task status accordingly,
+// logs system chat message, and notifies client via WhatsApp.
 router.post("/progress", async (req, res) => {
-  const { taskId, progress } = req.body;
-  if (!taskId || progress == null) return res.status(400).json({ message: "taskId and progress are required" });
+  const { taskId, progress, stage, status: requestedStatus } = req.body;
+  if (!taskId) return res.status(400).json({ message: "taskId is required" });
 
   const { rows: taskRows } = await pool.query("select * from tasks where id = $1", [taskId]);
   const task = taskRows[0];
@@ -228,49 +236,55 @@ router.post("/progress", async (req, res) => {
   const isAssignee = task.assignee_id === req.user.id;
   if (!isAdmin && !isAssignee) return res.status(403).json({ message: "You don't have access to this task" });
 
-  // Two status transitions live here, the only place progress ever changes:
-  //  - Reaching 100% while not already Complete -> auto-completes the
-  //    task, same as clicking Mark Complete. completed_at is stamped
-  //    here, at the real moment of completion.
-  //  - Dragging back down below 100% while Complete -> reverts to
-  //    "In Progress". completed_at is left as-is in the row (harmless —
-  //    performance scoring only ever reads it for tasks currently
-  //    Complete, so a stale value from a previous completion is simply
-  //    ignored until this task is completed again, at which point it
-  //    gets overwritten with the new, real completion moment).
-  const wasComplete = task.status === "Complete";
-  const autoCompleting = !wasComplete && progress >= 100;
-  const revertingFromComplete = wasComplete && progress < 100;
-  const newStatus = autoCompleting ? "Complete" : revertingFromComplete ? "In Progress" : task.status;
+  let newStatus = requestedStatus || task.status;
+  let newProgress = progress != null ? Number(progress) : task.progress;
+  let newStage = stage || task.stage;
 
-  if (autoCompleting) {
+  if (stage === "On Hold" || requestedStatus === "On Hold") {
+    newStatus = "On Hold";
+    newStage = "On Hold";
+  } else if (stage === "Shipped" || (progress != null && Number(progress) >= 100)) {
+    newStatus = "Complete";
+    newProgress = 100;
+    newStage = stage || "Shipped";
+  } else {
+    newStatus = "In Progress";
+    if (stage === "Fabric/Material Sourcing") newProgress = 20;
+    else if (stage === "Outfit in Production") newProgress = 40;
+    else if (stage === "QC & Packaging") newProgress = 60;
+    else if (stage === "Ready for Dispatch") newProgress = 80;
+  }
+
+  if (newStatus === "Complete") {
     await pool.query(
-      "update tasks set progress = $1, status = $2, completed_at = now(), updated_at = now() where id = $3",
-      [progress, newStatus, taskId]
+      "update tasks set progress = $1, status = $2, stage = $3, completed_at = coalesce(completed_at, now()), updated_at = now() where id = $4",
+      [newProgress, newStatus, newStage, taskId]
     );
   } else {
     await pool.query(
-      "update tasks set progress = $1, status = $2, updated_at = now() where id = $3",
-      [progress, newStatus, taskId]
+      "update tasks set progress = $1, status = $2, stage = $3, updated_at = now() where id = $4",
+      [newProgress, newStatus, newStage, taskId]
     );
   }
 
   let systemText;
-  if (autoCompleting) systemText = `Progress reached 100% — task automatically marked Complete`;
-  else if (revertingFromComplete) systemText = `Progress updated to ${progress}% — task reopened (no longer marked Complete)`;
-  else systemText = `Progress updated to ${progress}%`;
+  let clientText;
+  if (newStatus === "On Hold") {
+    systemText = `Task placed On Hold`;
+    clientText = `⏸️ Status update: Your order '${task.title}' has been put On Hold.`;
+  } else if (newStatus === "Complete") {
+    systemText = `Stage updated to Shipped — task marked Complete`;
+    clientText = `🎉 Great news — your order '${task.title}' has been Shipped!`;
+  } else {
+    systemText = `Stage updated to ${newStage || "In Progress"} (${newProgress}%)`;
+    clientText = `📊 Order update: your order '${task.title}' is now in '${newStage || "In Progress"}' (${newProgress}% complete).`;
+  }
 
   await pool.query(
     `insert into messages (task_id, kind, text) values ($1, 'system', $2)`,
     [taskId, systemText]
   );
 
-  // The client-facing WhatsApp message changes tone at the exact moment
-  // of auto-completion — a completion announcement instead of a generic
-  // percentage update.
-  const clientText = autoCompleting
-    ? `🎉 Great news — your order '${task.title}' is complete!`
-    : `📊 Progress update: your task '${task.title}' is now ${progress}% complete.`;
   try {
     const sendResult = await sendWhatsAppMessage(task.client_phone, clientText);
     await pool.query(
@@ -282,7 +296,7 @@ router.post("/progress", async (req, res) => {
     console.error("WhatsApp progress update failed:", e.message);
   }
 
-  res.json({ ok: true, progress, status: newStatus });
+  res.json({ ok: true, progress: newProgress, status: newStatus, stage: newStage });
 });
 
 // POST /api/tasks/undo-complete

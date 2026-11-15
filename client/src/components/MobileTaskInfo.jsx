@@ -1,46 +1,53 @@
 import React, { useState } from "react";
-import { CheckCircle2, MessageSquare, ChevronRight, CheckCircle } from "lucide-react";
-import { updateTaskProgress, markTaskComplete, undoTaskComplete } from "../lib/api.js";
+import { MessageSquare, ChevronRight } from "lucide-react";
+import { updateTaskProgress, TASK_STAGES, getStageFromTask } from "../lib/api.js";
 
-// Mobile task info screen — shows all task details + a big "Open Chat"
-// button. Used identically by both staff (My Tasks) and admin (All
-// Tasks) on mobile, so tapping a task always shows this first instead
-// of jumping straight into chat. assigneeName is optional — admin
-// passes it (to show who the task belongs to), staff omits it (it's
-// always their own task).
+// Mobile task info screen — shows all task details + stage updater +
+// a big "Open Chat" button.
 export default function MobileTaskInfo({ task, assigneeName, onOpenChat, onBack, onProgressChange }) {
   const [progress, setProgress] = useState(task?.progress ?? 0);
   const [status, setStatus]     = useState(task?.status || "In Progress");
+  const [currentStage, setCurrentStage] = useState(getStageFromTask(task));
+  const [updatingStage, setUpdatingStage] = useState(false);
   if (!task) return null;
 
   const isComplete = status === "Complete";
   const linkList = typeof task.links === "string" ? task.links.split("\n").filter(Boolean) : [];
 
-  async function handleComplete() {
-    try {
-      await markTaskComplete(task.id);
-      setStatus("Complete");
-      setProgress(100);
-      onProgressChange?.(task.id, 100, "Complete");
-    } catch (e) { alert(e.message); }
-  }
+  async function handleStageChange(newStage) {
+    if (updatingStage) return;
+    let newProg = progress;
+    let newStat = status;
+    if (newStage === "On Hold") {
+      newStat = "On Hold";
+    } else if (newStage === "Shipped") {
+      newStat = "Complete";
+      newProg = 100;
+    } else {
+      newStat = "In Progress";
+      const found = TASK_STAGES.find((s) => s.name === newStage);
+      if (found) newProg = found.progress;
+    }
 
-  async function handleUndoComplete() {
-    try {
-      await undoTaskComplete(task.id);
-      setStatus("In Progress");
-      onProgressChange?.(task.id, progress, "In Progress");
-    } catch (e) { alert(e.message); }
-  }
+    setCurrentStage(newStage);
+    setProgress(newProg);
+    setStatus(newStat);
+    setUpdatingStage(true);
 
-  async function handleProgress(value) {
-    setProgress(value);
     try {
-      const result = await updateTaskProgress(task.id, value);
-      const newStatus = result?.status || status;
-      if (newStatus !== status) setStatus(newStatus);
-      onProgressChange?.(task.id, value, newStatus !== status ? newStatus : undefined);
-    } catch (e) { alert(e.message); }
+      const result = await updateTaskProgress(task.id, newProg, newStage, newStat);
+      const resStatus = result?.status || newStat;
+      const resProg = result?.progress != null ? result.progress : newProg;
+      const resStage = result?.stage || newStage;
+      setStatus(resStatus);
+      setProgress(resProg);
+      setCurrentStage(resStage);
+      onProgressChange?.(task.id, resProg, resStatus, resStage);
+    } catch (e) {
+      alert(e.message || "Failed to update stage");
+    } finally {
+      setUpdatingStage(false);
+    }
   }
 
   return (
@@ -60,7 +67,13 @@ export default function MobileTaskInfo({ task, assigneeName, onOpenChat, onBack,
       <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4">
         {/* Status + due */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`badge ${isComplete ? "badge-success" : "badge-accent"}`}>{status}</span>
+          <span className={`badge ${
+            status === "Complete" ? "badge-success"
+            : status === "On Hold" ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+            : "badge-accent"
+          }`}>
+            {status}
+          </span>
           {task.due_date && <span className="text-[11.5px] text-slate-400">Due: {task.due_date}</span>}
         </div>
 
@@ -99,35 +112,56 @@ export default function MobileTaskInfo({ task, assigneeName, onOpenChat, onBack,
           </div>
         )}
 
-        {/* Progress */}
-        <div className="rounded-2xl border border-slate-100 p-4 dark:border-white/8">
-          <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-[12px] font-semibold text-slate-500 dark:text-slate-400">Progress</p>
-            <p className="text-[14px] font-bold text-accent">{progress}%</p>
+        {/* Stage & Progress */}
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-white/8 dark:bg-[#1A1D27] space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current Stage</p>
+              <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">{currentStage}</p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+              status === "On Hold" ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
+              : isComplete ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400"
+              : "bg-accent/10 text-accent dark:bg-accent/20"
+            }`}>
+              {progress}% · {status}
+            </span>
           </div>
-          <input type="range" min={0} max={100} defaultValue={progress}
-            onMouseUp={(e) => handleProgress(Number(e.target.value))}
-            onTouchEnd={(e) => handleProgress(Number(e.target.value))}
-            className="w-full" style={{ accentColor: "#22D3D3" }}
-          />
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/8">
-            <div className="h-2 rounded-full bg-accent transition-all" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="mt-1.5 text-[10.5px] text-slate-400">Drag to update — client gets a WhatsApp message.</p>
-        </div>
 
-        {/* Mark Complete */}
-        {!isComplete ? (
-          <button onClick={handleComplete}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-3.5 text-[14px] font-bold text-white hover:bg-emerald-600 transition">
-            <CheckCircle2 size={17} /> Mark Complete
-          </button>
-        ) : (
-          <button onClick={handleUndoComplete}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-50 py-3 text-[13px] font-semibold text-emerald-600 transition hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50">
-            <CheckCircle size={16} /> Task Completed · Undo
-          </button>
-        )}
+          {/* Progress bar */}
+          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-white/8">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-500 ${
+                status === "On Hold" ? "bg-amber-400" : isComplete ? "bg-emerald-500" : "bg-accent"
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          {/* Stage selector dropdown */}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-400">
+              Update Stage:
+            </label>
+            <select
+              disabled={updatingStage}
+              value={currentStage}
+              onChange={(e) => handleStageChange(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-[13px] font-semibold text-slate-800 outline-none focus:border-accent dark:border-white/10 dark:bg-white/5 dark:text-slate-100 disabled:opacity-50"
+            >
+              {TASK_STAGES.map((s) => (
+                <option key={s.id} value={s.name}>
+                  {s.name} ({s.progress}%)
+                </option>
+              ))}
+              <option value="On Hold">⏸️ On Hold (Paused)</option>
+            </select>
+          </div>
+
+          <p className="text-[10.5px] text-slate-400">
+            Selecting a stage automatically advances progress and sends a WhatsApp update.
+          </p>
+        </div>
       </div>
 
       {/* Open Chat CTA */}

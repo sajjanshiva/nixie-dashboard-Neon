@@ -7,7 +7,7 @@ import Avatar from "./Avatar.jsx";
 import toast from "react-hot-toast";
 import {
   getMessages, subscribeToMessages, sendMessage,
-  updateTaskProgress, markTaskComplete, undoTaskComplete,
+  updateTaskProgress, TASK_STAGES, getStageFromTask,
 } from "../lib/api.js";
 import { useAuth } from "../lib/AuthContext.jsx";
 
@@ -207,6 +207,8 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   const [text, setText]         = useState("");
   const [progress, setProgress] = useState(task.progress ?? 0);
   const [taskStatus, setTaskStatus] = useState(task.status || "In Progress");
+  const [currentStage, setCurrentStage] = useState(getStageFromTask(task));
+  const [updatingStage, setUpdatingStage] = useState(false);
   const [sending, setSending]   = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false); // desktop collapsible
   const [infoSheetOpen, setInfoSheetOpen] = useState(false); // mobile info sheet
@@ -216,11 +218,12 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
   // manually instead — see handleLoadEarlier).
   const skipAutoScrollRef = useRef(false);
 
-  // Sync local state when task prop changes (e.g. after mark complete in parent)
+  // Sync local state when task prop changes (e.g. after stage change in parent)
   useEffect(() => {
     setProgress(task.progress ?? 0);
     setTaskStatus(task.status || "In Progress");
-  }, [task.progress, task.status, task.id]);
+    setCurrentStage(getStageFromTask(task));
+  }, [task.progress, task.status, task.stage, task.id]);
 
   // Messages: initial load (latest 40) + live WebSocket subscription.
   // subscribeToMessages is synchronous now (see api.js) specifically to
@@ -368,42 +371,45 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
     await attemptSend(msg.text, msg.kind === "staff", msg.kind === "client", [msg]);
   }
 
-  async function handleProgressCommit(value) {
-    setProgress(value);
-    try {
-      const result = await updateTaskProgress(task.id, value);
-      // Backend reverts status to "In Progress" when progress drops below
-      // 100% on a task that was marked Complete — sync that back into local
-      // state so the badge/filter don't keep showing "Complete" once the
-      // progress bar no longer agrees.
-      const newStatus = result?.status || taskStatus;
-      if (newStatus !== taskStatus) setTaskStatus(newStatus);
-      onProgressChange?.(task.id, value, newStatus !== taskStatus ? newStatus : undefined);
-    } catch (e) { alert(e.message); }
-  }
+  async function handleStageChange(newStage) {
+    if (updatingStage) return;
+    let newProg = progress;
+    let newStat = taskStatus;
+    if (newStage === "On Hold") {
+      newStat = "On Hold";
+    } else if (newStage === "Shipped") {
+      newStat = "Complete";
+      newProg = 100;
+    } else {
+      newStat = "In Progress";
+      const found = TASK_STAGES.find((s) => s.name === newStage);
+      if (found) newProg = found.progress;
+    }
 
-  async function handleComplete() {
+    setCurrentStage(newStage);
+    setProgress(newProg);
+    setTaskStatus(newStat);
+    setUpdatingStage(true);
+
     try {
-      await markTaskComplete(task.id);
-      setTaskStatus("Complete");
-      setProgress(100);
-      onProgressChange?.(task.id, 100, "Complete");
+      const result = await updateTaskProgress(task.id, newProg, newStage, newStat);
+      const resStatus = result?.status || newStat;
+      const resProg = result?.progress != null ? result.progress : newProg;
+      const resStage = result?.stage || newStage;
+      setTaskStatus(resStatus);
+      setProgress(resProg);
+      setCurrentStage(resStage);
+      onProgressChange?.(task.id, resProg, resStatus, resStage);
       getMessages(task.id, { limit: 40 }).then((data) => {
         setMessages(data?.messages || []);
         setHasMoreEarlier(!!data?.hasMore);
         setSiblingActiveTasks(data?.siblingActiveTasks || []);
       }).catch(() => {});
-    } catch (e) { alert(e.message); }
-  }
-
-  // Explicit "undo" for an accidental Mark Complete click — reverts status
-  // only, leaves whatever progress value is currently set untouched.
-  async function handleUndoComplete() {
-    try {
-      await undoTaskComplete(task.id);
-      setTaskStatus("In Progress");
-      onProgressChange?.(task.id, progress, "In Progress");
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      alert(e.message || "Failed to update stage");
+    } finally {
+      setUpdatingStage(false);
+    }
   }
 
   return (
@@ -418,7 +424,13 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className={`badge text-[10px] ${isComplete ? "badge-success" : "badge-accent"}`}>{taskStatus}</span>
+            <span className={`badge text-[10px] ${
+              taskStatus === "Complete" ? "badge-success"
+              : taskStatus === "On Hold" ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+              : "badge-accent"
+            }`}>
+              {taskStatus}
+            </span>
             {task.due_date && <span className="text-[10.5px] text-slate-400">Due {task.due_date}</span>}
           </div>
           <p className="truncate text-[13.5px] font-bold text-slate-900 dark:text-white leading-tight">{task.title || "Untitled Task"}</p>
@@ -437,28 +449,15 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
                 ? "bg-accent/10 text-accent dark:bg-accent/20"
                 : "text-slate-400 hover:bg-slate-100 dark:hover:bg-white/8"
             }`}
-            title="Phone / description / links"
+            title="Stage / Phone / description / links"
           >
             <Info size={15} />
           </button>
-
-          {!isComplete && (
-            <button onClick={handleComplete}
-              className="hidden items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-600 transition sm:flex">
-              <CheckCircle2 size={13} /> Mark Complete
-            </button>
-          )}
-          {isComplete && (
-            <button onClick={handleUndoComplete} title="Undo — reopen this task"
-              className="hidden items-center gap-1 rounded-xl bg-emerald-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-emerald-600 transition hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50 sm:flex">
-              <CheckCircle2 size={12} /> Completed · Undo
-            </button>
-          )}
         </div>
       </div>
 
       {/* ── Always-visible slim progress strip ──────────────────────
-           Click to expand the slider panel (desktop) or info sheet (mobile) */}
+           Click to expand stage selector (desktop) or info sheet (mobile) */}
       <div
         role="button"
         tabIndex={0}
@@ -467,23 +466,34 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
           else setDetailsOpen((v) => !v);
         }}
         onKeyDown={(e) => e.key === "Enter" && (window.innerWidth < 768 ? setInfoSheetOpen(true) : setDetailsOpen((v) => !v))}
-        className="flex shrink-0 cursor-pointer select-none items-center gap-2 border-b border-slate-100 px-3 py-1.5 transition hover:bg-slate-50/60 dark:border-white/6 dark:hover:bg-white/3"
-        title={detailsOpen ? "Collapse slider" : "Click to drag progress slider"}
+        className="flex shrink-0 cursor-pointer select-none items-center gap-2.5 border-b border-slate-100 px-3.5 py-2 transition hover:bg-slate-50/60 dark:border-white/6 dark:hover:bg-white/3"
+        title={detailsOpen ? "Collapse stage panel" : "Click to view/change stage"}
       >
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/8">
-          <div
-            className="h-1.5 rounded-full bg-accent transition-all duration-500"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/8">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${
+                taskStatus === "On Hold" ? "bg-amber-400" : isComplete ? "bg-emerald-500" : "bg-accent"
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="truncate text-[11.5px] font-semibold text-slate-700 dark:text-slate-300">
+            {currentStage}
+          </span>
         </div>
-        <span className="w-8 shrink-0 text-right text-[11px] font-bold text-accent">{progress}%</span>
+        <span className={`shrink-0 text-right text-[11.5px] font-bold ${
+          taskStatus === "On Hold" ? "text-amber-500" : isComplete ? "text-emerald-500" : "text-accent"
+        }`}>
+          {progress}%
+        </span>
         <ChevronUp
-          size={12}
+          size={13}
           className={`shrink-0 text-slate-300 transition-transform dark:text-slate-600 ${detailsOpen ? "" : "rotate-180"}`}
         />
       </div>
 
-      {/* ── Desktop collapsible details + progress slider ────────── */}
+      {/* ── Desktop collapsible details + stage selector ─────────── */}
       {detailsOpen && (
         <div className="hidden shrink-0 border-b border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-white/6 dark:bg-[#1A1D27] md:block animate-fade-in">
           {(task.client_phone || task.description || linkList.length > 0) && (
@@ -495,25 +505,69 @@ export default function TaskConversation({ task, staffToggleLabel = "Staff", onB
               ))}
             </div>
           )}
-          <div>
-            <div className="mb-1 flex items-center justify-between text-[11.5px]">
-              <span className="font-semibold text-slate-500 dark:text-slate-300">Progress</span>
-              <span className="font-bold text-accent">{progress}%</span>
+
+          {/* Stage & Progress controller */}
+          <div className="rounded-xl border border-slate-200/80 bg-white p-3 dark:border-white/10 dark:bg-[#151722]">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-bold text-slate-700 dark:text-slate-200">
+                Production Stage & Progress
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                taskStatus === "On Hold" ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
+                : isComplete ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400"
+                : "bg-accent/10 text-accent dark:bg-accent/20"
+              }`}>
+                {progress}% · {taskStatus}
+              </span>
             </div>
-            <input type="range" min={0} max={100} value={progress}
-              onChange={(e) => setProgress(Number(e.target.value))}
-              onMouseUp={(e) => handleProgressCommit(Number(e.target.value))}
-              onTouchEnd={(e) => handleProgressCommit(Number(e.target.value))}
-              className="w-full" style={{ accentColor: "#22D3D3" }}
-            />
-            <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-400">Drag to update — client gets a WhatsApp message automatically.</p>
+
+            {/* Stage Selector Dropdown */}
+            <div className="mb-3">
+              <label className="mb-1 block text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                Update Stage (automatically moves progress & notifies client):
+              </label>
+              <select
+                disabled={updatingStage}
+                value={currentStage}
+                onChange={(e) => handleStageChange(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12.5px] font-semibold text-slate-800 shadow-sm outline-none focus:border-accent dark:border-white/10 dark:bg-[#1A1D27] dark:text-slate-100 disabled:opacity-50"
+              >
+                {TASK_STAGES.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name} ({s.progress}%)
+                  </option>
+                ))}
+                <option value="On Hold">⏸️ On Hold (Paused)</option>
+              </select>
+            </div>
+
+            {/* Stepper Buttons */}
+            <div className="grid grid-cols-5 gap-1.5 pt-1">
+              {TASK_STAGES.map((s, idx) => {
+                const isPassed = progress >= s.progress && taskStatus !== "On Hold";
+                const isCurrent = currentStage === s.name;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={updatingStage}
+                    onClick={() => handleStageChange(s.name)}
+                    title={`Click to set stage to ${s.name} (${s.progress}%)`}
+                    className={`flex flex-col items-center justify-center rounded-lg p-1.5 text-center transition disabled:opacity-50 ${
+                      isCurrent
+                        ? "bg-accent/15 border border-accent/40 font-bold text-accent"
+                        : isPassed
+                        ? "bg-slate-100 text-slate-700 hover:bg-slate-200/70 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+                        : "bg-slate-50 text-slate-400 hover:bg-slate-100 dark:bg-white/3 dark:text-slate-500 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="text-[10px] font-bold">Step {idx + 1}</span>
+                    <span className="mt-0.5 text-[9px] leading-tight line-clamp-1">{s.name.split("/")[0].split("&")[0]}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          {!isComplete && (
-            <button onClick={handleComplete}
-              className="mt-2 flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-600 transition sm:hidden">
-              <CheckCircle2 size={13} /> Mark Complete
-            </button>
-          )}
         </div>
       )}
 

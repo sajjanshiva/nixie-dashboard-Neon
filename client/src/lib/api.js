@@ -98,12 +98,14 @@ async function authToken() {
 // Tasks
 // ---------------------------------------------------------------------
 
-export async function getTasks({ assigneeId, status, unassigned, page, pageSize } = {}) {
+export async function getTasks({ assigneeId, status, unassigned, month, search, page, pageSize } = {}) {
   const token = await authToken();
   const params = new URLSearchParams();
   if (assigneeId) params.set("assigneeId", assigneeId);
   if (status) params.set("status", status);
   if (unassigned) params.set("unassigned", "true");
+  if (month) params.set("month", month);
+  if (search) params.set("search", search);
   if (page) params.set("page", page);
   if (pageSize) params.set("pageSize", pageSize);
   const qs = params.toString() ? `?${params.toString()}` : "";
@@ -125,16 +127,46 @@ export async function assignTask(taskId, assigneeId) {
   return apiPut(`/api/tasks/${taskId}/assign`, { assigneeId }, token);
 }
 
-export async function updateTaskProgress(taskId, progress) {
+export async function updateTaskProgress(taskId, progress, stage, status) {
   // Routed through the backend so the "client gets a WhatsApp update
   // automatically" step can fire from one place.
   const token = await authToken();
-  return apiPost("/api/tasks/progress", { taskId, progress }, token);
+  return apiPost("/api/tasks/progress", { taskId, progress, stage, status }, token);
 }
 
 export async function markTaskComplete(taskId) {
   const token = await authToken();
   return apiPost(`/api/tasks/${taskId}/complete`, {}, token);
+}
+
+export const TASK_STAGES = [
+  { id: "sourcing",   name: "Fabric/Material Sourcing", progress: 20 },
+  { id: "production", name: "Outfit in Production",     progress: 40 },
+  { id: "qc",         name: "QC & Packaging",           progress: 60 },
+  { id: "dispatch",   name: "Ready for Dispatch",       progress: 80 },
+  { id: "shipped",    name: "Shipped",                  progress: 100 },
+];
+
+export const REIMBURSEMENT_CATEGORIES = [
+  "Travel & Transportation",
+  "Meals & Entertainment",
+  "Office Supplies & Equipment",
+  "Communication & Utilities",
+  "Software & Subscriptions",
+  "Postage & Shipping",
+  "Advertising & Marketing",
+];
+
+export function getStageFromTask(task) {
+  if (!task) return "Fabric/Material Sourcing";
+  if (task.status === "On Hold" || task.stage === "On Hold") return "On Hold";
+  if (task.stage) return task.stage;
+  const p = Number(task.progress || 0);
+  if (task.status === "Complete" || p >= 100) return "Shipped";
+  if (p >= 80) return "Ready for Dispatch";
+  if (p >= 60) return "QC & Packaging";
+  if (p >= 40) return "Outfit in Production";
+  return "Fabric/Material Sourcing";
 }
 
 // Manual tasks only — enforced server-side too, this isn't just a UI restriction.
@@ -261,10 +293,12 @@ export async function sendMessage({ taskId, text, toStaff, toClient }) {
 // the admin Approvals page). Called with nothing (or just { staffId },
 // which the server ignores and scopes by the logged-in user instead) ->
 // old plain-array behavior, unchanged for the staff-side Leave.jsx page.
-export async function getLeaves({ staffId, status, page, pageSize } = {}) {
+export async function getLeaves({ staffId, status, month, page, pageSize } = {}) {
   const token = await authToken();
   const params = new URLSearchParams();
+  if (staffId) params.set("staffId", staffId);
   if (status) params.set("status", status);
+  if (month) params.set("month", month);
   if (page) params.set("page", page);
   if (pageSize) params.set("pageSize", pageSize);
   const qs = params.toString() ? `?${params.toString()}` : "";
@@ -286,10 +320,13 @@ export async function decideLeave(leaveId, status, rejectReason = null) {
 // ---------------------------------------------------------------------
 
 // Same opt-in pagination pattern as getLeaves above.
-export async function getReimbursements({ staffId, status, page, pageSize } = {}) {
+export async function getReimbursements({ staffId, status, category, month, page, pageSize } = {}) {
   const token = await authToken();
   const params = new URLSearchParams();
+  if (staffId) params.set("staffId", staffId);
   if (status) params.set("status", status);
+  if (category) params.set("category", category);
+  if (month) params.set("month", month);
   if (page) params.set("page", page);
   if (pageSize) params.set("pageSize", pageSize);
   const qs = params.toString() ? `?${params.toString()}` : "";

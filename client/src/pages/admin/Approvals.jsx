@@ -4,11 +4,57 @@ import {
   CheckCircle2, XCircle, AlertCircle, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
-  getLeaves, getReimbursements, decideLeave, decideReimbursement,
+  getLeaves, getReimbursements, decideLeave, decideReimbursement, getTeamMembers,
+  REIMBURSEMENT_CATEGORIES,
 } from "../../lib/api.js";
 import ReceiptModal from "../../components/ReceiptModal.jsx";
 
 const PAGE_SIZE = 18;
+
+// ── Date formatting (DD-MM-YY) ─────────────────────────────────────────
+function formatDDMMYY(val) {
+  if (!val) return "—";
+  const str = String(val).slice(0, 10);
+  const parts = str.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    const yy = y.length === 4 ? y.slice(2) : y;
+    return `${d.padStart(2, "0")}-${m.padStart(2, "0")}-${yy}`;
+  }
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = String(d.getFullYear()).slice(2);
+  return `${day}-${month}-${year}`;
+}
+
+// ── Category Badge Helper ──────────────────────────────────────────────
+function getCategoryBadgeClass(category = "") {
+  const c = category.toLowerCase();
+  if (c.includes("travel") || c.includes("transport")) {
+    return "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200/60 dark:border-sky-800/40";
+  }
+  if (c.includes("meal") || c.includes("food") || c.includes("entertain")) {
+    return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40";
+  }
+  if (c.includes("suppl") || c.includes("office") || c.includes("equipment")) {
+    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40";
+  }
+  if (c.includes("communicat") || c.includes("utilit")) {
+    return "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200/60 dark:border-violet-800/40";
+  }
+  if (c.includes("software") || c.includes("subscript")) {
+    return "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/40";
+  }
+  if (c.includes("postage") || c.includes("ship")) {
+    return "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200/60 dark:border-teal-800/40";
+  }
+  if (c.includes("advertis") || c.includes("market")) {
+    return "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/40";
+  }
+  return "bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/40";
+}
 
 // ── Status badge ──────────────────────────────────────────────────────
 function StatusBadge({ status }) {
@@ -72,28 +118,56 @@ function RequestCard({ item, kind, onDecide, onViewReceipt }) {
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">
-            {item.staff?.name || item.staffName || "Former Employee"}
-          </p>
-          <p className="text-[12px] text-slate-400">
-            {kind === "leave"
-              ? `${item.type} · ${item.date_from} → ${item.date_to}`
-              : `${item.category} · ₹${item.amount}`}
-          </p>
-          {kind === "reimburse" && (
-            <p className="text-[11px] text-slate-400">
-              {item.expense_date && `Expense: ${new Date(`${item.expense_date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`}
-              {item.expense_date && " · "}
-              Submitted: {new Date(item.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-            </p>
+          {kind === "reimburse" ? (
+            <>
+              {/* Highlight reimbursement category type FIRST */}
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ${getCategoryBadgeClass(item.category)}`}>
+                  {item.category || "Expense"}
+                </span>
+              </div>
+              <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                {item.staff?.name || item.staffName || "Former Employee"}
+              </p>
+              <p className="mt-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                ₹{Number(item.amount).toLocaleString("en-IN")}
+                {item.expense_date && (
+                  <span className="font-normal text-slate-700 dark:text-slate-200">
+                    {" "}· Expense Date: <span className="font-semibold">{formatDDMMYY(item.expense_date)}</span>
+                  </span>
+                )}
+              </p>
+              {item.created_at && (
+                <p className="mt-0.5 text-[11.5px] font-medium text-slate-600 dark:text-slate-300">
+                  Submitted: {formatDDMMYY(item.created_at)}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">
+                {item.staff?.name || item.staffName || "Former Employee"}
+              </p>
+              <p className="mt-1 text-[12.5px] font-medium text-slate-700 dark:text-slate-200">
+                <span className="font-semibold text-accent">{item.type} Leave</span>
+                <span className="mx-1.5 text-slate-400 dark:text-slate-500">·</span>
+                <span>{formatDDMMYY(item.date_from)} → {formatDDMMYY(item.date_to)}</span>
+              </p>
+              {item.created_at && (
+                <p className="mt-0.5 text-[11.5px] font-medium text-slate-600 dark:text-slate-300">
+                  Submitted: {formatDDMMYY(item.created_at)}
+                </p>
+              )}
+            </>
           )}
+
           {(item.reason || item.note) && (
-            <p className="mt-1 text-[12.5px] text-slate-600 dark:text-slate-300">{item.reason || item.note}</p>
+            <p className="mt-1.5 text-[12.5px] text-slate-600 dark:text-slate-300">{item.reason || item.note}</p>
           )}
           {kind === "reimburse" && item.receipt_url && (
             <button
               onClick={() => onViewReceipt(item.receipt_url)}
-              className="mt-1 text-[11.5px] text-accent hover:underline"
+              className="mt-1 text-[11.5px] font-medium text-accent hover:underline"
             >
               View receipt
             </button>
@@ -245,6 +319,12 @@ export default function Approvals() {
   const [totalPages, setTotalPages]     = useState(1);
   const [loading, setLoading]           = useState(true);
 
+  // Filters
+  const [staffList, setStaffList]       = useState([]);
+  const [selectedStaff, setSelectedStaff] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
+
   // Per-tab total counts across all 3 statuses — for the tab badges.
   const [tabTotals, setTabTotals] = useState({ leaves: 0, reimburse: 0 });
   // Per-status counts within the CURRENT tab — for the status dropdown.
@@ -253,34 +333,62 @@ export default function Approvals() {
   const getFn = tab === "leaves" ? getLeaves : getReimbursements;
   const listKey = tab === "leaves" ? "leaves" : "reimbursements";
 
-  // Reset to page 1 whenever the tab or status filter changes.
-  useEffect(() => { setPage(1); }, [tab, statusFilter]);
+  // Load team members for staff filter
+  useEffect(() => {
+    getTeamMembers()
+      .then((m) => {
+        const list = Array.isArray(m) ? m : [];
+        setStaffList(list.filter((x) => x.name && !x.pending));
+      })
+      .catch(() => setStaffList([]));
+  }, []);
+
+  // Reset to page 1 whenever tab or any filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, statusFilter, selectedStaff, selectedCategory, selectedMonth]);
+
+  // Status-dropdown counts for the current tab + current filters.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [viewingReceipt, setViewingReceipt] = useState(null);
+
+  useEffect(() => {
+    const filterArgs = {
+      staffId: selectedStaff || undefined,
+      month: selectedMonth || undefined,
+      ...(tab === "reimburse" && selectedCategory ? { category: selectedCategory } : {}),
+    };
+    Promise.all([
+      getFn({ ...filterArgs, status: "pending", page: 1, pageSize: 1 }),
+      getFn({ ...filterArgs, status: "approved", page: 1, pageSize: 1 }),
+      getFn({ ...filterArgs, status: "rejected", page: 1, pageSize: 1 }),
+    ]).then(([p, a, r]) => {
+      setCounts({ pending: p.total, approved: a.total, rejected: r.total });
+    }).catch(() => {});
+  }, [tab, refreshTick, selectedStaff, selectedCategory, selectedMonth]);
 
   // The actual page of results — server-side filtered + paginated.
   useEffect(() => {
     setLoading(true);
-    getFn({ status: statusFilter, page, pageSize: PAGE_SIZE })
+    const filterArgs = {
+      status: statusFilter,
+      staffId: selectedStaff || undefined,
+      month: selectedMonth || undefined,
+      ...(tab === "reimburse" && selectedCategory ? { category: selectedCategory } : {}),
+      page,
+      pageSize: PAGE_SIZE,
+    };
+    getFn(filterArgs)
       .then((data) => {
         setItems(data[listKey] || []);
         setTotalPages(data.totalPages || 1);
       })
+      .catch((err) => {
+        console.error(err);
+        setItems([]);
+      })
       .finally(() => setLoading(false));
-  }, [tab, statusFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Status-dropdown counts for the current tab — 3 lightweight calls
-  // (pageSize:1, we only need `total` from each), same pattern as
-  // AllTasks.jsx's filter-pill counts. Re-derived after any decide.
-  const [refreshTick, setRefreshTick] = useState(0);
-  const [viewingReceipt, setViewingReceipt] = useState(null);
-  useEffect(() => {
-    Promise.all([
-      getFn({ status: "pending", page: 1, pageSize: 1 }),
-      getFn({ status: "approved", page: 1, pageSize: 1 }),
-      getFn({ status: "rejected", page: 1, pageSize: 1 }),
-    ]).then(([p, a, r]) => {
-      setCounts({ pending: p.total, approved: a.total, rejected: r.total });
-    }).catch(() => {});
-  }, [tab, refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab, statusFilter, selectedStaff, selectedCategory, selectedMonth, page, refreshTick]);
 
   // Tab badge totals (all statuses combined per tab) — fetched once and
   // re-derived after any decide, independent of which tab is active.
@@ -302,9 +410,6 @@ export default function Approvals() {
 
   async function handleDecideLeave(id, status, rejectReason) {
     await decideLeave(id, status, rejectReason || null);
-    // The item no longer belongs under this status filter — just refetch
-    // this page fresh from the server rather than trying to patch it
-    // in place (keeps totals/pagination always accurate).
     refresh();
   }
   async function handleDecideReimburse(id, status, rejectReason) {
@@ -314,13 +419,6 @@ export default function Approvals() {
 
   function refresh() {
     setRefreshTick((t) => t + 1);
-    setLoading(true);
-    getFn({ status: statusFilter, page, pageSize: PAGE_SIZE })
-      .then((data) => {
-        setItems(data[listKey] || []);
-        setTotalPages(data.totalPages || 1);
-      })
-      .finally(() => setLoading(false));
   }
 
   const TABS = [
@@ -328,16 +426,21 @@ export default function Approvals() {
     { id: "reimburse", label: "Reimbursements",  icon: Receipt, count: tabTotals.reimburse },
   ];
 
+  const hasActiveFilters = Boolean(selectedStaff || selectedCategory || selectedMonth);
+
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       {/* Tabs + status filter on same row */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {/* Tab switcher */}
         <div className="flex gap-1.5">
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setTab(t.id);
+                setSelectedCategory("");
+              }}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold transition ${
                 tab === t.id
                   ? "bg-accent text-white shadow-sm"
@@ -359,6 +462,62 @@ export default function Approvals() {
         <StatusDropdown value={statusFilter} onChange={setStatusFilter} counts={counts} />
       </div>
 
+      {/* Filter Bar */}
+      <div className="mb-5 flex flex-wrap items-center gap-2.5 rounded-2xl border border-slate-200/80 bg-white p-2.5 shadow-sm dark:border-white/8 dark:bg-[#1A1D27]">
+        <span className="text-[12px] font-semibold text-slate-400 pl-1">Filters:</span>
+
+        {/* Staff Filter */}
+        <select
+          value={selectedStaff}
+          onChange={(e) => setSelectedStaff(e.target.value)}
+          className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[12.5px] font-medium text-slate-700 outline-none focus:border-accent dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+        >
+          <option value="">All Staff</option>
+          {staffList.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+
+        {/* Category/Type Filter (Reimbursements only) */}
+        {tab === "reimburse" && (
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[12.5px] font-medium text-slate-700 outline-none focus:border-accent dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+          >
+            <option value="">All Categories</option>
+            {REIMBURSEMENT_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Date Filter (Month / Year) */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            title={tab === "reimburse" ? "Filter by expense month" : "Filter by leave month"}
+            className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[12.5px] font-medium text-slate-700 outline-none focus:border-accent dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+          />
+        </div>
+
+        {/* Reset Filters button */}
+        {hasActiveFilters && (
+          <button
+            onClick={() => {
+              setSelectedStaff("");
+              setSelectedCategory("");
+              setSelectedMonth("");
+            }}
+            className="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-rose-600 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400"
+          >
+            Clear Filters
+          </button>
+        )}
+      </div>
+
       {/* Cards */}
       {loading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -372,10 +531,10 @@ export default function Approvals() {
             {tab === "leaves" ? <Plane size={28} className="text-slate-300" /> : <Receipt size={28} className="text-slate-300" />}
           </div>
           <p className="text-[14px] font-semibold text-slate-500">
-            No {statusFilter} {tab === "leaves" ? "leaves" : "reimbursements"}
+            No {statusFilter} {tab === "leaves" ? "leaves" : "reimbursements"} {hasActiveFilters ? "matching filters" : ""}
           </p>
           <p className="mt-1 text-[12px] text-slate-400">
-            Use the dropdown above to view other statuses
+            {hasActiveFilters ? "Try resetting the filters or check another status" : "Use the dropdown above to view other statuses"}
           </p>
         </div>
       ) : (

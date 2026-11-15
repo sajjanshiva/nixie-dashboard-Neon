@@ -11,12 +11,32 @@ const router = Router();
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const status = req.query.status;
+  const staffId = req.query.staffId;
+  const category = req.query.category;
+  const month = req.query.month; // e.g. "YYYY-MM"
   const paginated = req.query.page !== undefined;
 
   const where = [];
   const params = [];
-  if (!isAdmin) { params.push(req.user.id); where.push(`r.staff_id = $${params.length}`); }
-  if (status)   { params.push(status);      where.push(`r.status = $${params.length}`); }
+  if (!isAdmin) {
+    params.push(req.user.id);
+    where.push(`r.staff_id = $${params.length}`);
+  } else if (staffId) {
+    params.push(staffId);
+    where.push(`r.staff_id = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    where.push(`r.status = $${params.length}`);
+  }
+  if (category) {
+    params.push(category);
+    where.push(`lower(r.category) = lower($${params.length})`);
+  }
+  if (month) {
+    params.push(`${month}%`);
+    where.push(`(r.expense_date::text like $${params.length} or to_char(r.created_at, 'YYYY-MM') like $${params.length})`);
+  }
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
   if (!paginated) {

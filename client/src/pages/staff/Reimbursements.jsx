@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Receipt, Plus, Upload } from "lucide-react";
 import { useAuth } from "../../lib/AuthContext.jsx";
-import { getReimbursements, submitReimbursement, getImageKitAuthParams } from "../../lib/api.js";
+import { getReimbursements, submitReimbursement, getImageKitAuthParams, REIMBURSEMENT_CATEGORIES } from "../../lib/api.js";
 import StatusPill from "../../components/StatusPill.jsx";
 import Modal from "../../components/Modal.jsx";
 import ReceiptModal from "../../components/ReceiptModal.jsx";
@@ -28,7 +28,7 @@ export default function Reimbursements() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ category: "Travel", amount: "", note: "", expense_date: new Date().toISOString().slice(0, 10) });
+  const [form, setForm] = useState({ category: REIMBURSEMENT_CATEGORIES[0], amount: "", note: "", expense_date: new Date().toISOString().slice(0, 10) });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [viewingReceipt, setViewingReceipt] = useState(null);
@@ -54,7 +54,7 @@ export default function Reimbursements() {
         expense_date: form.expense_date,
       });
       setOpen(false);
-      setForm({ category: "Travel", amount: "", note: "", expense_date: new Date().toISOString().slice(0, 10) });
+      setForm({ category: REIMBURSEMENT_CATEGORIES[0], amount: "", note: "", expense_date: new Date().toISOString().slice(0, 10) });
       setFile(null);
       reload();
     } catch (e) {
@@ -112,9 +112,18 @@ export default function Reimbursements() {
         <div className="p-5">
           <h3 className="mb-4 text-[15px] font-bold text-slate-900 dark:text-white">New Expense</h3>
           <div className="space-y-3">
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input">
-              <option>Travel</option><option>Food</option><option>Supplies</option><option>Other</option>
-            </select>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-400">Expense Category</label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="input"
+              >
+                {REIMBURSEMENT_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-400">Date of expense</label>
               <input type="date" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} className="input" />

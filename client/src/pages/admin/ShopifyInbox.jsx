@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Check, X as XIcon, ShoppingBag, Tag, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ShoppingBag, Tag, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { getShopifyOrders, getShopifyLeads, assignLead, assignOrder, assignTask, getTeamMembers, syncShopifyInbox } from "../../lib/api.js";
 import Modal from "../../components/Modal.jsx";
 import LeadDetails from "../../components/LeadDetails.jsx";
@@ -7,216 +7,259 @@ import toast from "react-hot-toast";
 
 const PAGE_SIZE = 24;
 
-// ── Assign control (leads) — mirrors OrderAssignControl/ReassignOrderControl
-//    below, minus the phone field (leads already have one on file) ─────────
-function AssignControl({ currentAssigneeId, staff, onConfirm }) {
-  const [open, setOpen] = useState(false);
-  const [assigneeId, setAssigneeId] = useState("");
-
-  const assignedStaff = staff.find((s) => s.id === currentAssigneeId);
-
-  if (!open) {
-    return assignedStaff ? (
-      <div className="flex flex-1 items-center justify-between gap-2">
-        <span className="truncate text-[11.5px] text-slate-500 dark:text-slate-400">
-          → Assigned to <span className="font-semibold">{assignedStaff.name}</span>
-        </span>
-        <button
-          onClick={() => { setAssigneeId(assignedStaff.id); setOpen(true); }}
-          className="shrink-0 text-[11.5px] font-medium text-accent hover:underline"
-        >
-          Reassign
-        </button>
-      </div>
-    ) : (
-      <button
-        onClick={() => { setAssigneeId(""); setOpen(true); }}
-        className="btn-primary flex-1 py-1.5 text-[12px]"
-      >
-        Assign
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex flex-1 items-center gap-1.5">
-      <select
-        autoFocus
-        value={assigneeId}
-        onChange={(e) => setAssigneeId(e.target.value)}
-        className="max-w-[130px] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-      >
-        <option value="">Assign to…</option>
-        {staff.map((s) => (
-          <option key={s.id} value={s.id}>{s.name}</option>
-        ))}
-      </select>
-      <button
-        onClick={() => {
-          if (!assigneeId || !staff.some((s) => s.id === assigneeId)) {
-            toast.error("Pick a staff member");
-            return;
-          }
-          onConfirm(assigneeId);
-          setOpen(false);
-        }}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"
-        aria-label="Confirm assign"
-      >
-        <Check size={14} />
-      </button>
-      <button
-        onClick={() => setOpen(false)}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
-        aria-label="Cancel"
-      >
-        <XIcon size={14} />
-      </button>
-    </div>
-  );
-}
-
-// ── Assign control (orders) — needs a phone number too, since the
-//    Shopify webhook doesn't always carry a reliable customer phone ───────
-function OrderAssignControl({ order, staff, onConfirm, submitting }) {
-  const [open, setOpen] = useState(false);
-  const [phone, setPhone] = useState(order.customer_phone || "");
-  const [assigneeId, setAssigneeId] = useState("");
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => {
-          setAssigneeId("");
-          setPhone(order.customer_phone || "");
-          setOpen(true);
-        }}
-        className="btn-primary flex-1 py-1.5 text-[12px]"
-      >
-        Assign
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex w-full flex-col gap-2">
-      <input
-        type="tel"
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        placeholder="Client phone number"
-        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-      />
-      <div className="flex items-center gap-1.5">
-        <select
-          value={assigneeId}
-          onChange={(e) => setAssigneeId(e.target.value)}
-          className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-        >
-          <option value="">Assign to…</option>
-          {staff.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
-        <button
-          onClick={() => {
-            if (!phone.trim() || !assigneeId || !staff.some((s) => s.id === assigneeId)) {
-              toast.error("Enter a phone number and pick a staff member");
-              return;
-            }
-            onConfirm({ phone: phone.trim(), assigneeId });
-          }}
-          disabled={submitting}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
-          aria-label="Confirm assign"
-        >
-          <Check size={14} />
-        </button>
-        <button
-          onClick={() => setOpen(false)}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
-          aria-label="Cancel"
-        >
-          <XIcon size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Reassign control — shown once an order already has a valid task & assignee,
-//    lets admin move it to a different staff member
-function ReassignOrderControl({ assignedStaff, staff, onConfirm }) {
-  const [editing, setEditing] = useState(false);
-  const [pending, setPending] = useState(null);
-
-  if (!editing) {
-    return (
-      <div className="flex flex-1 items-center justify-between gap-2">
-        <span className="truncate text-[11.5px] text-slate-500 dark:text-slate-400">
-          → Assigned to <span className="font-semibold">{assignedStaff.name}</span>
-        </span>
-        <button
-          onClick={() => setEditing(true)}
-          className="shrink-0 text-[11.5px] font-medium text-accent hover:underline"
-        >
-          Reassign
-        </button>
-      </div>
-    );
-  }
-
-  if (pending) {
-    return (
-      <div className="flex flex-1 items-center gap-1.5">
-        <span className="flex-1 truncate text-[11.5px] text-slate-600 dark:text-slate-300">
-          Move to <span className="font-semibold">{pending.name}</span>?
-        </span>
-        <button
-          onClick={() => { onConfirm(pending.id); setPending(null); setEditing(false); }}
-          className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"
-          aria-label="Confirm reassign"
-        >
-          <Check size={13} />
-        </button>
-        <button
-          onClick={() => { setPending(null); setEditing(false); }}
-          className="flex h-6 w-6 items-center justify-center rounded-lg bg-danger text-white hover:bg-danger/90"
-          aria-label="Cancel"
-        >
-          <XIcon size={13} />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <select
-      autoFocus
-      value={assignedStaff.id}
-      onChange={(e) => {
-        const id = e.target.value;
-        if (!id || id === assignedStaff.id) { setEditing(false); return; }
-        const found = staff.find((s) => s.id === id);
-        if (found) setPending(found);
-      }}
-      onBlur={() => setEditing(false)}
-      className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-    >
-      <option value="">Move to…</option>
-      {staff.map((s) => (
-        <option key={s.id} value={s.id}>{s.name}</option>
-      ))}
-    </select>
-  );
-}
-
 // ── Shared card wrapper ──────────────────────────────────────────────────
 function ItemCard({ children }) {
   return (
     <div className="card flex flex-col gap-3 p-4 dark:bg-[#1A1D27]">
       {children}
     </div>
+  );
+}
+
+// ── Lead Card ─────────────────────────────────────────────────────────────
+function LeadCard({ lead, staff, onViewDetails, onAssign }) {
+  const [open, setOpen] = useState(false);
+  const assignedStaff = staff.find((s) => s.id === (lead.assignee_id || lead.assignee?.id));
+  const isAssigned = Boolean(assignedStaff);
+
+  return (
+    <ItemCard>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Tag size={12} className="text-amber-500" />
+          <span className="text-[11.5px] font-bold text-amber-600">
+            {lead.lead_number || "Lead"}
+          </span>
+        </div>
+        <span
+          className={`badge capitalize ${
+            !isAssigned
+              ? "badge-slate"
+              : lead.status === "contacted"
+              ? "badge-success"
+              : "badge-accent"
+          }`}
+        >
+          {!isAssigned ? "unassigned" : lead.status}
+        </span>
+      </div>
+
+      <div>
+        <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+          {lead.name}
+        </p>
+        <p className="truncate text-[12px] text-slate-400">
+          {lead.outfit_type} · {lead.price_estimate}
+        </p>
+        <div className="mt-1 text-[12px]">
+          {isAssigned ? (
+            <p className="truncate text-slate-600 dark:text-slate-300">
+              <span className="text-slate-400 dark:text-slate-500">Assigned to: </span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{assignedStaff.name}</span>
+            </p>
+          ) : (
+            <p className="text-slate-400 dark:text-slate-500">Unassigned</p>
+          )}
+        </div>
+      </div>
+
+      {open ? (
+        <div className="flex items-center gap-2">
+          <select
+            autoFocus
+            defaultValue=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) return;
+              onAssign(val);
+              setOpen(false);
+            }}
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12.5px] text-slate-700 shadow-sm outline-none focus:border-accent dark:border-white/10 dark:bg-[#1A1D27] dark:text-slate-200"
+          >
+            <option value="" disabled>{isAssigned ? "Move to…" : "Assign to…"}</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onViewDetails}
+            className="btn-secondary flex-1 py-1.5 text-[12px]"
+          >
+            View Details
+          </button>
+          {isAssigned ? (
+            <button
+              onClick={() => setOpen(true)}
+              className="btn-secondary flex-1 py-1.5 text-[12px] font-semibold text-accent hover:border-accent/40"
+            >
+              Reassign
+            </button>
+          ) : (
+            <button
+              onClick={() => setOpen(true)}
+              className="btn-primary flex-1 py-1.5 text-[12px]"
+            >
+              Assign
+            </button>
+          )}
+        </div>
+      )}
+    </ItemCard>
+  );
+}
+
+// ── Order Card ────────────────────────────────────────────────────────────
+function OrderCard({ order, staff, onViewDetails, onAssign, onReassign, submitting }) {
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [phone, setPhone] = useState(order.customer_phone || "");
+
+  const assignedStaff = staff.find((s) => s.id === order.task?.assignee?.id);
+  const isOrderAssigned = Boolean(order.task_id && assignedStaff);
+
+  return (
+    <ItemCard>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <ShoppingBag size={12} className="text-emerald-500" />
+          <span className="text-[11.5px] font-bold text-emerald-600">
+            {order.order_number || "#"}
+          </span>
+        </div>
+        <span
+          className={`badge capitalize ${
+            isOrderAssigned ? "badge-accent" : "badge-slate"
+          }`}
+        >
+          {isOrderAssigned ? "Assigned" : "Unassigned"}
+        </span>
+      </div>
+
+      <div>
+        <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
+          {order.customer_name}
+        </p>
+        <p className="truncate text-[12px] text-slate-400">
+          {order.items} · {order.price}
+        </p>
+        <div className="mt-1 text-[12px]">
+          {isOrderAssigned ? (
+            <p className="truncate text-slate-600 dark:text-slate-300">
+              <span className="text-slate-400 dark:text-slate-500">Assigned to: </span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{assignedStaff.name}</span>
+            </p>
+          ) : (
+            <p className="text-slate-400 dark:text-slate-500">Unassigned</p>
+          )}
+        </div>
+      </div>
+
+      {assignOpen ? (
+        <div className="flex flex-col gap-2 pt-1 border-t border-slate-100 dark:border-white/5 animate-fade-in">
+          <input
+            type="tel"
+            autoFocus
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Client mobile number"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 outline-none focus:border-accent dark:border-white/10 dark:bg-[#1A1D27] dark:text-slate-300"
+          />
+          <div className="flex items-center gap-2">
+            <select
+              defaultValue=""
+              disabled={submitting}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                if (!phone.trim()) {
+                  toast.error("Enter a mobile number and pick a staff member");
+                  e.target.value = "";
+                  return;
+                }
+                onAssign({ phone: phone.trim(), assigneeId: id });
+                setAssignOpen(false);
+              }}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12.5px] text-slate-700 shadow-sm outline-none focus:border-accent dark:border-white/10 dark:bg-[#1A1D27] dark:text-slate-300"
+            >
+              <option value="" disabled>Select staff to assign…</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setAssignOpen(false)}
+              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : reassignOpen ? (
+        <div className="flex items-center gap-2 animate-fade-in">
+          <select
+            autoFocus
+            defaultValue=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id || id === assignedStaff?.id) return;
+              onReassign(id);
+              setReassignOpen(false);
+            }}
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12.5px] text-slate-700 shadow-sm outline-none focus:border-accent dark:border-white/10 dark:bg-[#1A1D27] dark:text-slate-300"
+          >
+            <option value="" disabled>Move to…</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setReassignOpen(false)}
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onViewDetails}
+            className="btn-secondary flex-1 py-1.5 text-[12px]"
+          >
+            View Details
+          </button>
+          {isOrderAssigned ? (
+            <button
+              onClick={() => setReassignOpen(true)}
+              className="btn-secondary flex-1 py-1.5 text-[12px] font-semibold text-accent hover:border-accent/40"
+            >
+              Reassign
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setPhone(order.customer_phone || "");
+                setAssignOpen(true);
+              }}
+              className="btn-primary flex-1 py-1.5 text-[12px]"
+            >
+              Assign
+            </button>
+          )}
+        </div>
+      )}
+    </ItemCard>
   );
 }
 
@@ -493,57 +536,15 @@ export default function ShopifyInbox() {
                 </p>
               </div>
             )}
-            {leads.map((l) => {
-              const assignedStaff = staff.find((s) => s.id === (l.assignee_id || l.assignee?.id));
-              const isAssigned = Boolean(assignedStaff);
-
-              return (
-                <ItemCard key={l.id}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Tag size={12} className="text-amber-500" />
-                      <span className="text-[11.5px] font-bold text-amber-600">
-                        {l.lead_number || "Lead"}
-                      </span>
-                    </div>
-                    <span
-                      className={`badge capitalize ${
-                        !isAssigned
-                          ? "badge-slate"
-                          : l.status === "contacted"
-                          ? "badge-success"
-                          : "badge-accent"
-                      }`}
-                    >
-                      {!isAssigned ? "unassigned" : l.status}
-                    </span>
-                  </div>
-
-                  <div>
-                    <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                      {l.name}
-                    </p>
-                    <p className="truncate text-[12px] text-slate-400">
-                      {l.outfit_type} · {l.price_estimate}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setViewingRef({ type: "lead", id: l.id })}
-                      className="btn-secondary flex-1 py-1.5 text-[12px]"
-                    >
-                      View Details
-                    </button>
-                    <AssignControl
-                      currentAssigneeId={assignedStaff?.id}
-                      staff={staff}
-                      onConfirm={(id) => handleAssignLead(l.id, id)}
-                    />
-                  </div>
-                </ItemCard>
-              );
-            })}
+            {leads.map((l) => (
+              <LeadCard
+                key={l.id}
+                lead={l}
+                staff={staff}
+                onViewDetails={() => setViewingRef({ type: "lead", id: l.id })}
+                onAssign={(id) => handleAssignLead(l.id, id)}
+              />
+            ))}
           </div>
           <Pager
             page={leadsPage}
@@ -564,63 +565,17 @@ export default function ShopifyInbox() {
                 </p>
               </div>
             )}
-            {orders.map((o) => {
-              const assignedStaff = staff.find((s) => s.id === o.task?.assignee?.id);
-              const isOrderAssigned = Boolean(o.task_id && assignedStaff);
-
-              return (
-                <ItemCard key={o.id}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <ShoppingBag size={12} className="text-emerald-500" />
-                      <span className="text-[11.5px] font-bold text-emerald-600">
-                        {o.order_number || "#"}
-                      </span>
-                    </div>
-                    <span
-                      className={`badge capitalize ${
-                        isOrderAssigned ? "badge-accent" : "badge-slate"
-                      }`}
-                    >
-                      {isOrderAssigned ? "Assigned" : "Unassigned"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <p className="truncate text-[14px] font-bold text-slate-800 dark:text-slate-100">
-                      {o.customer_name}
-                    </p>
-                    <p className="truncate text-[12px] text-slate-400">
-                      {o.items} · {o.price}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setViewingRef({ type: "order", id: o.id })}
-                      className="btn-secondary flex-1 py-1.5 text-[12px]"
-                    >
-                      View Details
-                    </button>
-
-                    {isOrderAssigned ? (
-                      <ReassignOrderControl
-                        assignedStaff={assignedStaff}
-                        staff={staff}
-                        onConfirm={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
-                      />
-                    ) : (
-                      <OrderAssignControl
-                        order={o}
-                        staff={staff}
-                        submitting={assigningOrderId === o.id}
-                        onConfirm={(payload) => handleAssignOrder(o, payload)}
-                      />
-                    )}
-                  </div>
-                </ItemCard>
-              );
-            })}
+            {orders.map((o) => (
+              <OrderCard
+                key={o.id}
+                order={o}
+                staff={staff}
+                submitting={assigningOrderId === o.id}
+                onViewDetails={() => setViewingRef({ type: "order", id: o.id })}
+                onAssign={(payload) => handleAssignOrder(o, payload)}
+                onReassign={(newAssigneeId) => handleReassignOrder(o, newAssigneeId)}
+              />
+            ))}
           </div>
           <Pager
             page={ordersPage}

@@ -15,12 +15,27 @@ const router = Router();
 router.get("/", async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const status = req.query.status; // "pending" | "approved" | "rejected" | undefined
+  const staffId = req.query.staffId;
+  const month = req.query.month; // e.g. "YYYY-MM"
   const paginated = req.query.page !== undefined;
 
   const where = [];
   const params = [];
-  if (!isAdmin) { params.push(req.user.id); where.push(`l.staff_id = $${params.length}`); }
-  if (status)   { params.push(status);      where.push(`l.status = $${params.length}`); }
+  if (!isAdmin) {
+    params.push(req.user.id);
+    where.push(`l.staff_id = $${params.length}`);
+  } else if (staffId) {
+    params.push(staffId);
+    where.push(`l.staff_id = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    where.push(`l.status = $${params.length}`);
+  }
+  if (month) {
+    params.push(`${month}%`);
+    where.push(`(l.date_from::text like $${params.length} or l.date_to::text like $${params.length} or to_char(l.created_at, 'YYYY-MM') like $${params.length})`);
+  }
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
   if (!paginated) {
